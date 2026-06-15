@@ -1,6 +1,6 @@
 {
   "name": "@bahirul/9router-gateway",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Prompt-aware OpenAI-compatible gateway for 9Router",
   "type": "module",
   "private": false,
