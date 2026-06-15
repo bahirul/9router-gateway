@@ -9,7 +9,6 @@ const DEFAULT_CONFIG = {
     host: "127.0.0.1",
     port: 20129,
     maxBodyBytes: 128 * 1024 * 1024,
-    uiEnabled: true,
   },
   upstream: {
     baseUrl: "http://127.0.0.1:20128",
@@ -64,7 +63,6 @@ const ENV_FIELDS = {
   "server.host": "SMART_ROUTER_HOST",
   "server.port": "SMART_ROUTER_PORT",
   "server.maxBodyBytes": "SMART_ROUTER_MAX_BODY_BYTES",
-  "server.uiEnabled": "SMART_ROUTER_UI_ENABLED",
   "upstream.baseUrl": "NINEROUTER_BASE_URL",
   "upstream.apiKey": "NINEROUTER_API_KEY",
   "upstream.requestTimeoutMs": "SMART_ROUTER_REQUEST_TIMEOUT_MS",
@@ -116,6 +114,13 @@ function mergeDeep(base, override) {
   return result;
 }
 
+function discardLegacyUiSetting(config) {
+  if (!isObject(config?.server)) return config;
+  delete config.server.uiEnabled;
+  if (!Object.keys(config.server).length) delete config.server;
+  return config;
+}
+
 function interpolateEnv(text) {
   return text.replace(/\$\{([A-Z0-9_]+)(?::-([^}]*))?\}/g, (_, name, fallback = "") => {
     return process.env[name] ?? fallback;
@@ -144,7 +149,6 @@ function applyEnvironment(config) {
       host: process.env.SMART_ROUTER_HOST ?? config.server.host,
       port: envNumber("SMART_ROUTER_PORT", config.server.port),
       maxBodyBytes: envNumber("SMART_ROUTER_MAX_BODY_BYTES", config.server.maxBodyBytes),
-      uiEnabled: envBoolean("SMART_ROUTER_UI_ENABLED", config.server.uiEnabled),
     },
     upstream: {
       baseUrl: process.env.NINEROUTER_BASE_URL ?? config.upstream.baseUrl,
@@ -182,6 +186,7 @@ function assertPositiveNumber(value, name) {
 }
 
 function validate(config) {
+  delete config.server.uiEnabled;
   assertPositiveNumber(config.server.port || 1, "server.port");
   assertPositiveNumber(config.server.maxBodyBytes, "server.maxBodyBytes");
   assertPositiveNumber(config.upstream.requestTimeoutMs, "upstream.requestTimeoutMs");
@@ -308,7 +313,6 @@ function lockedFields() {
 
 function publicConfig(config) {
   return {
-    server: { uiEnabled: config.server.uiEnabled },
     upstream: {
       baseUrl: config.upstream.baseUrl,
       requestTimeoutMs: config.upstream.requestTimeoutMs,
@@ -337,11 +341,11 @@ function publicConfig(config) {
 export class RuntimeConfigManager {
   constructor(configPath = process.env.SMART_ROUTER_CONFIG || "./config.yaml") {
     this.configPath = path.resolve(configPath);
-    this.fileConfig = readYaml(this.configPath);
+    this.fileConfig = discardLegacyUiSetting(readYaml(this.configPath));
     const preRuntime = mergeDeep(DEFAULT_CONFIG, this.fileConfig);
     const dataDir = path.resolve(process.env.SMART_ROUTER_DATA_DIR || preRuntime.logging.directory);
     this.runtimePath = path.join(dataDir, "runtime-config.json");
-    this.runtimeOverrides = readJson(this.runtimePath);
+    this.runtimeOverrides = discardLegacyUiSetting(readJson(this.runtimePath));
     this.listeners = new Set();
     this.reload();
   }

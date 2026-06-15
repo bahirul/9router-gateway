@@ -37,6 +37,7 @@ npm run admin:set-password -- 'a-new-password'
 ```
 
 The password is stored in `data/router.sqlite` and survives restarts.
+The built-in dashboard is always enabled and is not configurable.
 
 Point clients to:
 
@@ -90,6 +91,7 @@ Common environment variables are listed in `.env.example`:
 
 The existing `SMART_ROUTER_*`, `x-smart-router-*`, and `smart_router_*` names are retained for compatibility.
 `SMART_ROUTER_CLASSIFIER_ENABLED` is optional; setting it explicitly locks the semantic-classification toggle to that value.
+`SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE` is optional; setting it explicitly locks the minimum-confidence field to that value.
 
 `npm start`, `npm run dev`, and utility scripts load `.env` when it exists. Values already exported by the shell take precedence.
 

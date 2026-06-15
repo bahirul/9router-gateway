@@ -69,6 +69,28 @@ test("environment-managed editable fields are reported and rejected", async () =
   }
 });
 
+test("legacy UI disable settings are ignored", () => {
+  const previous = process.env.SMART_ROUTER_UI_ENABLED;
+  process.env.SMART_ROUTER_UI_ENABLED = "false";
+  try {
+    const { directory, configPath } = configFixture();
+    fs.appendFileSync(configPath, "\nserver:\n  uiEnabled: false\n");
+    fs.writeFileSync(path.join(directory, "runtime-config.json"), JSON.stringify({
+      server: { uiEnabled: false },
+    }));
+    const manager = new RuntimeConfigManager(configPath);
+    const state = manager.describe();
+
+    assert.equal(manager.get().server.uiEnabled, undefined);
+    assert.equal(state.config.server, undefined);
+    assert.equal(state.overrides.server, undefined);
+    assert.equal(state.locked["server.uiEnabled"], undefined);
+  } finally {
+    if (previous === undefined) delete process.env.SMART_ROUTER_UI_ENABLED;
+    else process.env.SMART_ROUTER_UI_ENABLED = previous;
+  }
+});
+
 test("classifier enablement is dashboard-editable without an environment override", async () => {
   const previous = process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
   delete process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
@@ -88,6 +110,28 @@ test("classifier enablement is dashboard-editable without an environment overrid
   } finally {
     if (previous === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
     else process.env.SMART_ROUTER_CLASSIFIER_ENABLED = previous;
+  }
+});
+
+test("classifier confidence is dashboard-editable without an environment override", async () => {
+  const previous = process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
+  delete process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
+  try {
+    const { directory, configPath } = configFixture();
+    const manager = new RuntimeConfigManager(configPath);
+    const state = manager.describe();
+    assert.equal(state.locked["classifier.minimumConfidence"], undefined);
+
+    const updated = await manager.update({
+      classifier: { minimumConfidence: 0.55 },
+    }, state.revision);
+
+    assert.equal(updated.config.classifier.minimumConfidence, 0.55);
+    const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
+    assert.equal(overrides.classifier.minimumConfidence, 0.55);
+  } finally {
+    if (previous === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
+    else process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE = previous;
   }
 });
 

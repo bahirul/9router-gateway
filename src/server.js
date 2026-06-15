@@ -479,7 +479,7 @@ export function createSmartRouter({
         return jsonResponse(res, 202, { accepted: true });
       }
 
-      if (serveStaticUi(req, res, pathname, activeConfig.server.uiEnabled)) return;
+      if (serveStaticUi(req, res, pathname)) return;
 
       const bodyBuffer = await readBody(req, activeConfig.server.maxBodyBytes);
 

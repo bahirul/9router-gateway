@@ -25,8 +25,8 @@ export function createStaticUi(rootDirectory) {
   const root = path.resolve(rootDirectory);
   const indexFile = path.join(root, "index.html");
 
-  return function serveStaticUi(req, res, pathname, enabled) {
-    if (!enabled || !["GET", "HEAD"].includes(req.method)) return false;
+  return function serveStaticUi(req, res, pathname) {
+    if (!["GET", "HEAD"].includes(req.method)) return false;
     if (pathname.startsWith("/api/") || pathname.startsWith("/v1/")) return false;
     if (!fs.existsSync(indexFile)) return false;
     if (!pathname.startsWith("/assets/") && pathname !== "/" && !ROOT_ASSETS.has(pathname) && path.extname(pathname)) {

@@ -27,18 +27,18 @@ test("serves the SPA shell with security headers and leaves API paths alone", ()
   const serve = createStaticUi(directory);
 
   const head = response();
-  assert.equal(serve({ method: "HEAD" }, head, "/dashboard/routing", true), true);
+  assert.equal(serve({ method: "HEAD" }, head, "/dashboard/routing"), true);
   assert.equal(head.status, 200);
   assert.equal(head.ended, true);
   assert.equal(head.headers["X-Frame-Options"], "DENY");
   assert.match(head.headers["Content-Security-Policy"], /frame-ancestors 'none'/);
 
   const favicon = response();
-  assert.equal(serve({ method: "HEAD" }, favicon, "/favicon.svg", true), true);
+  assert.equal(serve({ method: "HEAD" }, favicon, "/favicon.svg"), true);
   assert.equal(favicon.status, 200);
   assert.equal(favicon.headers["Content-Type"], "image/svg+xml");
 
-  assert.equal(serve({ method: "GET" }, response(), "/api/admin/status", true), false);
-  assert.equal(serve({ method: "GET" }, response(), "/favicon.ico", true), false);
-  assert.equal(serve({ method: "GET" }, response(), "/", false), false);
+  assert.equal(serve({ method: "GET" }, response(), "/api/admin/status"), false);
+  assert.equal(serve({ method: "GET" }, response(), "/v1/models"), false);
+  assert.equal(serve({ method: "GET" }, response(), "/favicon.ico"), false);
 });
