@@ -168,3 +168,103 @@ test("security api key auth toggle is editable and persisted", async () => {
   const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
   assert.equal(overrides.security.apiKeyAuthEnabled, true);
 });
+
+test("loads custom YAML task classes without exposing them as UI-editable config", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
+  const configPath = path.join(directory, "config.yaml");
+  fs.writeFileSync(configPath, `
+logging:
+  directory: ${JSON.stringify(directory)}
+classifier:
+  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
+  enabled: false
+upstream:
+  strictModelValidation: false
+routing:
+  taskClasses:
+    translation:
+      semanticLabel: translation work
+      priority: 95
+      scoreDelta: -10
+      patterns:
+        - "\\\\blocali[sz]e\\\\b"
+`);
+
+  const manager = new RuntimeConfigManager(configPath);
+  assert.equal(manager.get().routing.taskClasses.translation.semanticLabel, "translation work");
+  assert.equal(manager.describe().config.routing.taskClasses, undefined);
+});
+
+test("rejects invalid YAML task class regexes", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
+  const configPath = path.join(directory, "config.yaml");
+  fs.writeFileSync(configPath, `
+logging:
+  directory: ${JSON.stringify(directory)}
+classifier:
+  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
+  enabled: false
+upstream:
+  strictModelValidation: false
+routing:
+  taskClasses:
+    broken:
+      semanticLabel: broken work
+      patterns:
+        - "["
+`);
+
+  assert.throws(
+    () => new RuntimeConfigManager(configPath),
+    /routing\.taskClasses\.broken\.patterns\.0 is invalid/,
+  );
+});
+
+test("rejects invalid YAML task class definitions", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
+  const configPath = path.join(directory, "config.yaml");
+  fs.writeFileSync(configPath, `
+logging:
+  directory: ${JSON.stringify(directory)}
+classifier:
+  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
+  enabled: false
+upstream:
+  strictModelValidation: false
+routing:
+  taskClasses:
+    BadClass:
+      semanticLabel: bad class
+    general:
+      task: false
+`);
+
+  assert.throws(
+    () => new RuntimeConfigManager(configPath),
+    /routing\.taskClasses\.BadClass must use lowercase/,
+  );
+});
+
+test("rejects invalid YAML task class hard floors", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
+  const configPath = path.join(directory, "config.yaml");
+  fs.writeFileSync(configPath, `
+logging:
+  directory: ${JSON.stringify(directory)}
+classifier:
+  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
+  enabled: false
+upstream:
+  strictModelValidation: false
+routing:
+  taskClasses:
+    custom:
+      semanticLabel: custom work
+      hardFloor: extreme
+`);
+
+  assert.throws(
+    () => new RuntimeConfigManager(configPath),
+    /routing\.taskClasses\.custom\.hardFloor must be medium or high/,
+  );
+});

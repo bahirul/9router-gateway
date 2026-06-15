@@ -1,17 +1,4 @@
-const CANDIDATES = {
-  quick: "quick transformation",
-  coding: "software coding",
-  debugging: "software debugging",
-  planning: "technical planning",
-  review: "code review",
-  research: "technical research",
-  general: "general question",
-};
-
-const LABELS = Object.values(CANDIDATES);
-const CANONICAL_LABELS = Object.fromEntries(
-  Object.entries(CANDIDATES).map(([canonical, candidate]) => [candidate, canonical]),
-);
+import { DEFAULT_COMPILED_TASK_CLASSES } from "./task-classes.js";
 
 function withTimeout(promise, timeoutMs) {
   let timer;
@@ -63,24 +50,24 @@ export class SemanticClassifier {
     this.load().catch(() => {});
   }
 
-  async classify(text) {
+  async classify(text, taskClasses = DEFAULT_COMPILED_TASK_CLASSES) {
     const started = performance.now();
     try {
       const classifier = await withTimeout(this.load(), this.config.timeoutMs);
       if (!classifier) return null;
       const clipped = text.slice(-12000);
       const result = await withTimeout(
-        classifier(clipped, LABELS, {
+        classifier(clipped, taskClasses.labels, {
           hypothesis_template: "This user request requires {}.",
           multi_label: false,
         }),
         this.config.timeoutMs,
       );
       const scores = Object.fromEntries(
-        result.labels.map((label, index) => [CANONICAL_LABELS[label] || label, result.scores[index]]),
+        result.labels.map((label, index) => [taskClasses.canonicalLabels[label] || label, result.scores[index]]),
       );
       const rawLabel = result.labels[0];
-      const label = CANONICAL_LABELS[rawLabel] || rawLabel;
+      const label = taskClasses.canonicalLabels[rawLabel] || rawLabel;
       this.metrics.observeClassifier(performance.now() - started, "success");
       return { label, rawLabel, confidence: scores[label], scores };
     } catch (error) {
@@ -90,5 +77,3 @@ export class SemanticClassifier {
     }
   }
 }
-
-export { CANDIDATES, LABELS };

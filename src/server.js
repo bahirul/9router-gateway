@@ -388,7 +388,7 @@ export function createSmartRouter({
 
   manager.onChange(async (nextConfig) => {
     currentConfig = nextConfig;
-    engine.config = nextConfig;
+    engine.setConfig(nextConfig);
     classifier.config = nextConfig.classifier;
     catalog.config = nextConfig.upstream;
     affinity.ttlMs = nextConfig.affinity.ttlMs;

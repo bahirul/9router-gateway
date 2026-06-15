@@ -1,3 +1,5 @@
+import { DEFAULT_COMPILED_TASK_CLASSES } from "./task-classes.js";
+
 const SEMANTIC_SCORES = {
   quick: 15,
   coding: 50,
@@ -44,11 +46,14 @@ export function makeDecision({
   features,
   semantic,
   routingConfig,
+  taskClasses = DEFAULT_COMPILED_TASK_CLASSES,
 }) {
   const profile = routingConfig.profiles[requestedModel];
   if (!profile) return null;
 
-  const semanticScore = semantic ? SEMANTIC_SCORES[semantic.label] ?? 45 : null;
+  const semanticScore = semantic
+    ? taskClasses.semanticScores[semantic.label] ?? SEMANTIC_SCORES[semantic.label] ?? 45
+    : null;
   let score = semanticScore === null
     ? features.ruleScore
     : Math.round(features.ruleScore * 0.6 + semanticScore * 0.4);

@@ -3,6 +3,7 @@ import test from "node:test";
 import { extractFeatures } from "../src/features.js";
 import { normalizeRequest } from "../src/request-normalizer.js";
 import { makeDecision } from "../src/policy.js";
+import { DEFAULT_TASK_CLASSES, compileTaskClasses } from "../src/task-classes.js";
 
 const routingConfig = {
   shadowMode: false,
@@ -102,4 +103,33 @@ test("recognizes Indonesian planning and risk signals", () => {
   const decision = decide("Rencanakan arsitektur migrasi basis data produksi tanpa downtime dan rollback.");
   assert.equal(decision.task, "planning");
   assert.equal(decision.target, "smart-large");
+});
+
+test("uses configured task classes for deterministic classification", () => {
+  const taskClasses = compileTaskClasses({
+    ...DEFAULT_TASK_CLASSES,
+    translation: {
+      semanticLabel: "translation work",
+      priority: 95,
+      scoreDelta: -10,
+      patterns: ["\\blocali[sz]e\\b"],
+    },
+  });
+  const normalized = normalizeRequest("/v1/chat/completions", {
+    model: "auto",
+    messages: [{ role: "user", content: "Localize these button labels for Indonesian users." }],
+  });
+  const features = extractFeatures(normalized, routingConfig.thresholds, taskClasses);
+  const decision = makeDecision({
+    requestedModel: "auto",
+    normalized,
+    features,
+    semantic: null,
+    routingConfig,
+    taskClasses,
+  });
+
+  assert.equal(features.flags.translation, true);
+  assert.equal(decision.task, "translation");
+  assert.equal(decision.target, "smart-small");
 });

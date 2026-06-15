@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import YAML from "yaml";
+import { DEFAULT_TASK_CLASSES, compileTaskClasses } from "./task-classes.js";
 
 const DEFAULT_CONFIG = {
   server: {
@@ -34,6 +35,7 @@ const DEFAULT_CONFIG = {
       large: "smart-large",
       vision: "smart-vision",
     },
+    taskClasses: DEFAULT_TASK_CLASSES,
   },
   classifier: {
     enabled: true,
@@ -216,6 +218,7 @@ function validate(config) {
   for (const model of ["auto", "auto-fast", "auto-quality"]) {
     if (!config.routing.profiles[model]) throw new Error(`routing.profiles.${model} is required`);
   }
+  compileTaskClasses(config.routing.taskClasses);
   if (
     !Number.isFinite(config.classifier.minimumConfidence)
     || config.classifier.minimumConfidence < 0
@@ -304,6 +307,7 @@ function lockedFields() {
 }
 
 function publicConfig(config) {
+  const { taskClasses, ...routing } = config.routing;
   return {
     upstream: {
       baseUrl: config.upstream.baseUrl,
@@ -312,7 +316,7 @@ function publicConfig(config) {
       strictModelValidation: config.upstream.strictModelValidation,
       apiKeyConfigured: Boolean(config.upstream.apiKey),
     },
-    routing: structuredClone(config.routing),
+    routing: structuredClone(routing),
     classifier: {
       enabled: config.classifier.enabled,
       model: config.classifier.model,

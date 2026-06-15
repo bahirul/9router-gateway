@@ -2,15 +2,21 @@ import crypto from "node:crypto";
 import { extractFeatures } from "./features.js";
 import { extractSessionId, normalizeRequest } from "./request-normalizer.js";
 import { isAmbiguous, makeDecision } from "./policy.js";
+import { compileTaskClasses } from "./task-classes.js";
 
 export class RouterEngine {
   constructor({ config, classifier, affinity, catalog, metrics, logStore }) {
-    this.config = config;
+    this.setConfig(config);
     this.classifier = classifier;
     this.affinity = affinity;
     this.catalog = catalog;
     this.metrics = metrics;
     this.logStore = logStore;
+  }
+
+  setConfig(config) {
+    this.config = config;
+    this.taskClasses = compileTaskClasses(config.routing.taskClasses);
   }
 
   isVirtualModel(model) {
@@ -23,9 +29,9 @@ export class RouterEngine {
       return { passthrough: true, normalized };
     }
 
-    const features = extractFeatures(normalized, this.config.routing.thresholds);
+    const features = extractFeatures(normalized, this.config.routing.thresholds, this.taskClasses);
     const semanticCandidate = isAmbiguous(features, this.config.routing)
-      ? await this.classifier.classify(features.text)
+      ? await this.classifier.classify(features.text, this.taskClasses)
       : null;
     const semantic = semanticCandidate
       && semanticCandidate.confidence >= this.config.classifier.minimumConfidence
@@ -40,6 +46,7 @@ export class RouterEngine {
       features,
       semantic,
       routingConfig: this.config.routing,
+      taskClasses: this.taskClasses,
     });
     const sessionId = extractSessionId(body, normalized, headers);
     decision = this.affinity.apply(sessionId, decision, Date.now(), !explainOnly);
