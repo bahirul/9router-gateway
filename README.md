@@ -18,6 +18,17 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 
 9Router still owns provider credentials, account rotation, quota handling, format translation, and provider fallback. The gateway handles request classification, routing policy, conversation affinity, history, and operator controls.
 
+## Features
+
+- **OpenAI-compatible gateway** for Chat Completions, Responses, and Anthropic Messages-style requests
+- **Virtual smart models** with `auto`, `auto-fast`, and `auto-quality` routing profiles
+- **Prompt-aware routing** using deterministic signals, optional semantic classification, and image detection
+- **Conversation affinity** to prevent later turns from being downgraded after stronger routing decisions
+- **Operator dashboard** for analytics, routing controls, decision history, playground testing, and system settings
+- **API-key enforcement** with named keys, expirations, enable/disable controls, and hashed verification
+- **Runtime configuration** with environment locks, dashboard-managed overrides, and no restart for routing changes
+- **Release-friendly operations** with health checks, Prometheus metrics, Docker support, and SQLite-backed history
+
 ## Quick start
 
 Requirements:
@@ -91,7 +102,10 @@ Common environment variables are listed in `.env.example`:
 - `NINEROUTER_API_KEY` is used for background model-catalog requests when 9Router requires authentication.
 - `SMART_ROUTER_CONFIG` selects the configuration file.
 - `SMART_ROUTER_DATA_DIR` selects the persistent data directory.
+- `SMART_ROUTER_MAX_BODY_BYTES` controls the largest accepted request body.
 - `SMART_ROUTER_HOST` and `SMART_ROUTER_PORT` control the listener.
+- `SMART_ROUTER_REQUEST_TIMEOUT_MS` controls upstream request timeout.
+- `SMART_ROUTER_LOG_RAW_PROMPTS` enables raw prompt/request snapshots in local logs.
 - `SMART_ROUTER_API_KEY_AUTH_ENABLED` can lock client API-key enforcement from the environment.
 
 The existing `SMART_ROUTER_*`, `x-smart-router-*`, and `smart_router_*` names are retained for compatibility.

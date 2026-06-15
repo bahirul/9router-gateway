@@ -51,3 +51,4 @@ logging:
 
 security:
   sessionTtlMs: 28800000
+  apiKeyAuthEnabled: false
