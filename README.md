@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="/Users/ari/Pictures/Screenshots/Screenshot 2026-06-15 at 14.38.50.png" alt="9Router Gateway dashboard screenshot" />
+  <img src="screenshots/9router-gateway.png" alt="9Router Gateway dashboard screenshot" />
 </p>
 
 <h1 align="center">9Router Gateway</h1>
