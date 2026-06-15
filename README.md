@@ -1,4 +1,8 @@
-# 9Router Gateway
+<p align="center">
+  <img src="/Users/ari/Pictures/Screenshots/Screenshot 2026-06-15 at 14.38.50.png" alt="9Router Gateway dashboard screenshot" />
+</p>
+
+<h1 align="center">9Router Gateway</h1>
 
 9Router Gateway sits between an AI client and [9Router](https://github.com/decolua/9router). It accepts OpenAI-compatible and Anthropic requests, chooses a 9Router model or combo for virtual models such as `auto`, then forwards the request upstream.
 
