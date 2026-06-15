@@ -29,6 +29,85 @@ import {
 } from "./components";
 
 const COLORS = ["#E56A4A", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
+const TASK_CLASS_COLOR = "#3B82F6";
+const COMPLEXITY_COLORS = {
+  low: "#10B981",
+  medium: "#F59E0B",
+  high: "#EF4444",
+};
+
+const OVERVIEW_RANGES = [
+  { value: "3h", label: "3h" },
+  { value: "today", label: "Today" },
+  { value: "24h", label: "24h" },
+  { value: "7d", label: "7d" },
+  { value: "30d", label: "30d" },
+];
+
+function startOfTodayIso() {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return now.toISOString();
+}
+
+function rangeParams(range) {
+  const now = new Date();
+  if (range === "today") return { from: startOfTodayIso(), to: now.toISOString() };
+  const hours = range === "3h" ? 3 : range === "24h" ? 24 : range === "7d" ? 24 * 7 : 24 * 30;
+  return { from: new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString(), to: now.toISOString() };
+}
+
+function startOfHour(date) {
+  const next = new Date(date);
+  next.setMinutes(0, 0, 0);
+  return next;
+}
+
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function timelineBucketKey(timestamp, range) {
+  const date = new Date(timestamp);
+  return (["3h", "today", "24h"].includes(range) ? startOfHour(date) : startOfDay(date)).toISOString();
+}
+
+function timelineStep(range) {
+  return ["3h", "today", "24h"].includes(range) ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+}
+
+function normalizeTimeline(analytics, range) {
+  if (!analytics?.from || !analytics?.to) return analytics?.timeline || [];
+  const step = timelineStep(range);
+  const start = timelineBucketKey(analytics.from, range);
+  const end = timelineBucketKey(analytics.to, range);
+  const counts = new Map();
+  for (const item of analytics.timeline || []) {
+    const key = timelineBucketKey(item.timestamp, range);
+    counts.set(key, (counts.get(key) || 0) + item.requests);
+  }
+  const timeline = [];
+  for (let cursor = new Date(start); cursor <= new Date(end); cursor = new Date(cursor.getTime() + step)) {
+    const timestamp = cursor.toISOString();
+    timeline.push({ timestamp, requests: counts.get(timestamp) || 0 });
+  }
+  return timeline;
+}
+
+function formatTimelineTick(value, range) {
+  const date = new Date(value);
+  if (["3h", "today", "24h"].includes(range)) return date.toLocaleTimeString([], { hour: "2-digit" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function requestVolumeSubtitle(range) {
+  if (range === "3h") return "Hourly routed prompts over the last 3 hours";
+  if (range === "today") return "Hourly routed prompts today";
+  if (range === "24h") return "Hourly routed prompts over the last 24 hours";
+  return `Daily routed prompts over the last ${range}`;
+}
 
 function Loading() {
   return <div className="grid min-h-56 place-items-center text-text-muted"><Icon className="animate-spin text-3xl">progress_activity</Icon></div>;
@@ -63,12 +142,15 @@ export function OverviewPage() {
   const [status, setStatus] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [error, setError] = useState("");
+  const [range, setRange] = useState("3h");
+  const timeline = useMemo(() => normalizeTimeline(analytics, range), [analytics, range]);
 
-  async function load() {
+  async function load(selectedRange = range) {
     try {
+      const params = new URLSearchParams(rangeParams(selectedRange));
       const [nextStatus, nextAnalytics] = await Promise.all([
         api("/api/admin/status"),
-        api("/api/admin/analytics"),
+        api(`/api/admin/analytics?${params.toString()}`),
       ]);
       setStatus(nextStatus);
       setAnalytics(nextAnalytics);
@@ -77,15 +159,36 @@ export function OverviewPage() {
   }
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 15000);
+    load(range);
+    const timer = setInterval(() => load(range), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [range]);
+
+  function selectRange(value) {
+    setRange(value);
+  }
 
   if (!status || !analytics) return <Loading />;
   return (
     <>
-      <PageHeader title="Overview" description="Live routing health and the last 24 hours of prompt decisions." action={<Button variant="secondary" onClick={load}><Icon>refresh</Icon>Refresh</Button>} />
+      <PageHeader
+        title="Overview"
+        description={range === "today" ? "Live routing health and today’s prompt decisions." : `Live routing health and the last ${range} of prompt decisions.`}
+        action={(
+          <div className="flex flex-wrap gap-2 rounded-[12px] border border-border-subtle bg-surface-2 p-1">
+            {OVERVIEW_RANGES.map((item) => (
+              <Button
+                key={item.value}
+                variant={range === item.value ? "primary" : "ghost"}
+                className="min-h-8 px-3 py-1.5 text-xs"
+                onClick={() => selectRange(item.value)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        )}
+      />
       <ErrorBox error={error} />
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Requests" value={analytics.total.toLocaleString()} hint={`${analytics.completed} completed`} icon="route" />
@@ -94,13 +197,13 @@ export function OverviewPage() {
         <Metric label="Tokens" value={analytics.tokenTotal.toLocaleString()} hint={`${status.affinityEntries} active affinities`} icon="data_usage" tone="warning" />
       </div>
       <div className="mb-6 grid gap-4 xl:grid-cols-[2fr_1fr]">
-        <Card title="Request volume" subtitle="Hourly routed prompts">
+        <Card title="Request volume" subtitle={requestVolumeSubtitle(range)}>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={analytics.timeline}>
+              <AreaChart data={timeline}>
                 <defs><linearGradient id="routeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#E56A4A" stopOpacity={0.35}/><stop offset="95%" stopColor="#E56A4A" stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid stroke="var(--color-border-subtle)" vertical={false} />
-                <XAxis dataKey="timestamp" tickFormatter={(value) => new Date(value).toLocaleTimeString([], { hour: "2-digit" })} stroke="var(--color-text-muted)" fontSize={11} />
+                <XAxis dataKey="timestamp" tickFormatter={(value) => formatTimelineTick(value, range)} stroke="var(--color-text-muted)" fontSize={11} />
                 <YAxis stroke="var(--color-text-muted)" fontSize={11} allowDecimals={false} />
                 <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} labelFormatter={(value) => new Date(value).toLocaleString()} />
                 <Area type="monotone" dataKey="requests" stroke="#E56A4A" fill="url(#routeFill)" strokeWidth={2} />
@@ -141,15 +244,21 @@ function HealthRow({ label, good, value }) {
 }
 
 function Distribution({ title, data }) {
+  const chartData = objectChart(data);
+  const barFill = title === "Task classes" ? TASK_CLASS_COLOR : null;
   return (
     <Card title={title}>
       <div className="h-44">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={objectChart(data)} layout="vertical" margin={{ left: 8 }}>
+          <BarChart data={chartData} layout="vertical" margin={{ left: 8 }}>
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="name" width={80} stroke="var(--color-text-muted)" fontSize={11} />
             <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />
-            <Bar dataKey="value" fill="#E56A4A" radius={[0, 6, 6, 0]} />
+            <Bar dataKey="value" fill={barFill || "#E56A4A"} radius={[0, 6, 6, 0]}>
+              {!barFill && chartData.map((entry) => (
+                <Cell key={entry.name} fill={COMPLEXITY_COLORS[entry.name] || "#E56A4A"} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
