@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="screenshots/9router-gateway.png" alt="9Router Gateway dashboard screenshot" />
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/overview.png" alt="9Router Gateway overview dashboard screenshot" />
 </p>
 
 <h1 align="center">9Router Gateway</h1>
@@ -9,6 +9,12 @@
 ```text
 AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 ```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/routing.png" alt="9Router Gateway routing dashboard screenshot" width="30%" />
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/decisions.png" alt="9Router Gateway decisions dashboard screenshot" width="30%" />
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/system.png" alt="9Router Gateway system dashboard screenshot" width="30%" />
+</p>
 
 9Router still owns provider credentials, account rotation, quota handling, format translation, and provider fallback. The gateway handles request classification, routing policy, conversation affinity, history, and operator controls.
 
