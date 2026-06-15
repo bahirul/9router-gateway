@@ -1,0 +1,27 @@
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "20129:20129"
+    environment:
+      NINEROUTER_BASE_URL: http://9router:20128
+      SMART_ROUTER_CONFIG: /app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - gateway-data:/app/data
+    depends_on:
+      9router:
+        condition: service_started
+
+  9router:
+    image: decolua/9router:latest
+    restart: unless-stopped
+    ports:
+      - "20128:20128"
+    volumes:
+      - 9router-data:/app/data
+
+volumes:
+  gateway-data:
+  9router-data:

@@ -1,0 +1,41 @@
+{
+  "name": "9router-gateway",
+  "version": "0.2.0",
+  "description": "Prompt-aware OpenAI-compatible gateway for 9Router",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "dev:ui": "vite --config ui/vite.config.js",
+    "build:ui": "vite build --config ui/vite.config.js",
+    "test": "node --test",
+    "admin:set-password": "node scripts/set-admin-password.js",
+    "check": "node --check src/server.js && node --test && npm run build:ui",
+    "evaluate": "node --env-file-if-exists=.env scripts/evaluate.js",
+    "smoke:upstream": "node --env-file-if-exists=.env scripts/upstream-smoke.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.17.0",
+    "recharts": "3.8.1",
+    "tailwindcss": "4.3.1",
+    "vite": "8.0.16"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true,
+    "onnxruntime-node@1.21.0": true,
+    "protobufjs@7.6.4": true,
+    "sharp@0.34.5": true
+  }
+}

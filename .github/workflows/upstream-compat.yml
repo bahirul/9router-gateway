@@ -1,0 +1,46 @@
+name: upstream-compat
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  released-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: docker run -d --name 9router -p 20128:20128 decolua/9router:latest
+      - run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:20128/v1/models && break
+            sleep 2
+          done
+      - run: npm run smoke:upstream
+      - if: always()
+        run: docker logs 9router
+
+  upstream-master:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: docker build -t 9router:master https://github.com/decolua/9router.git#master
+      - run: docker run -d --name 9router-master -p 20128:20128 9router:master
+      - run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:20128/v1/models && break
+            sleep 2
+          done
+      - run: npm run smoke:upstream
+      - if: always()
+        run: docker logs 9router-master

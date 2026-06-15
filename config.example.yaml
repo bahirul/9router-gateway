@@ -1,0 +1,54 @@
+server:
+  host: 0.0.0.0
+  port: 20129
+  maxBodyBytes: 134217728
+  uiEnabled: true
+
+upstream:
+  baseUrl: ${NINEROUTER_BASE_URL:-http://127.0.0.1:20128}
+  apiKey: ${NINEROUTER_API_KEY}
+  requestTimeoutMs: 600000
+  catalogRefreshMs: 30000
+  strictModelValidation: true
+
+routing:
+  shadowMode: false
+  shadowTarget: smart-medium
+  thresholds:
+    medium: 35
+    high: 70
+  ambiguityMargin: 8
+  profiles:
+    auto:
+      scoreBias: 0
+    auto-fast:
+      scoreBias: -15
+    auto-quality:
+      scoreBias: 15
+  targets:
+    small: smart-small
+    medium: smart-medium
+    planning: smart-planning
+    large: smart-large
+    vision: smart-vision
+
+classifier:
+  enabled: true
+  model: Xenova/nli-deberta-v3-xsmall
+  revision: 2a4f614a701367a02d51389039afc998faeda637
+  timeoutMs: 400
+  minimumConfidence: 0.32
+  cacheDir: ./data/models
+  localFilesOnly: false
+
+affinity:
+  ttlMs: 7200000
+  maxEntries: 10000
+
+logging:
+  directory: ./data
+  rawPrompts: false
+  retentionDays: 30
+
+security:
+  sessionTtlMs: 28800000
