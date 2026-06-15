@@ -2,6 +2,8 @@
   "name": "@bahirul/9router-gateway",
   "version": "0.1.0",
   "description": "Prompt-aware OpenAI-compatible gateway for 9Router",
+  "keywords": ["9router", "ai", "gateway", "agents"],
+  "license": "MIT",
   "type": "module",
   "private": false,
   "engines": {
