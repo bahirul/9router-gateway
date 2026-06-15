@@ -16,6 +16,7 @@ import {
 import { DecisionStore } from "./decision-store.js";
 import { LogStore } from "./log-store.js";
 import { Metrics } from "./metrics.js";
+import { packageVersion } from "./package-info.js";
 import { isRoutablePath } from "./request-normalizer.js";
 import { RouterEngine } from "./router-engine.js";
 import { SessionManager } from "./session-manager.js";
@@ -409,7 +410,7 @@ export function createSmartRouter({
       if (req.method === "GET" && pathname === "/healthz") {
         return jsonResponse(res, 200, {
           status: "ok",
-          version: "0.2.0",
+          version: packageVersion,
           classifier: activeConfig.classifier.enabled ? (classifier.lastError ? "degraded" : "enabled") : "disabled",
         });
       }

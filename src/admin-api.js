@@ -1,3 +1,5 @@
+import { packageVersion } from "./package-info.js";
+
 function sendJson(res, status, body, headers = {}) {
   const payload = Buffer.from(JSON.stringify(body));
   res.writeHead(status, {
@@ -117,7 +119,7 @@ export function createAdminApi(context) {
         const protocol = forwardedProto || (secureRequest(req) ? "https" : "http");
         const host = req.headers.host || `${config.server.host}:${config.server.port}`;
         sendJson(res, 200, {
-          version: "0.2.0",
+          version: packageVersion,
           uptimeSeconds: Math.floor(process.uptime()),
           ready: catalog.ready || !config.upstream.strictModelValidation,
           catalog: {

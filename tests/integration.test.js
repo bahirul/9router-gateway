@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DEFAULT_CONFIG, mergeDeep } from "../src/config.js";
+import { packageVersion } from "../src/package-info.js";
 import { createSmartRouter } from "../src/server.js";
 
 async function listen(server) {
@@ -110,6 +111,9 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     app.stopBackgroundServices();
   });
   const baseUrl = `http://127.0.0.1:${sidecarPort}`;
+
+  const health = await fetch(`${baseUrl}/healthz`).then((response) => response.json());
+  assert.equal(health.version, packageVersion);
 
   const planned = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
@@ -258,7 +262,9 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     headers: { Cookie: cookie },
   });
   assert.equal(dashboardStatus.status, 200);
-  assert.equal((await dashboardStatus.json()).proxyBaseUrl, `${baseUrl}/v1`);
+  const statusBody = await dashboardStatus.json();
+  assert.equal(statusBody.version, packageVersion);
+  assert.equal(statusBody.proxyBaseUrl, `${baseUrl}/v1`);
 
   const catalog = await fetch(`${baseUrl}/api/admin/catalog`, {
     headers: { Cookie: cookie },

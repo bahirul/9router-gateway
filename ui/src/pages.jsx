@@ -959,6 +959,7 @@ export function SystemPage() {
       <div className="grid gap-5 xl:grid-cols-2">
         <Card title="Service status">
           <div className="space-y-3">
+            <HealthRow label="Version" good value={status.version || "Unknown"} />
             <HealthRow label="Router readiness" good={status.ready} value={status.ready ? "Ready" : "Not ready"} />
             <HealthRow label="9Router catalog" good={status.catalog.ready} value={`${status.catalog.models} models`} />
             <HealthRow label="Classifier" good={status.classifier.state !== "degraded"} value={status.classifier.state} />
