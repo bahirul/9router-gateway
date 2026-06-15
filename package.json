@@ -1,15 +1,27 @@
 {
-  "name": "9router-gateway",
+  "name": "@bahirul/9router-gateway",
   "version": "0.2.0",
   "description": "Prompt-aware OpenAI-compatible gateway for 9Router",
   "type": "module",
-  "private": true,
+  "private": false,
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "9router-gateway": "bin/9router-gateway.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "ui/dist/",
+    "README.md",
+    "LICENSE",
+    "config.example.yaml"
+  ],
   "scripts": {
-    "start": "node --env-file-if-exists=.env src/server.js",
-    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "prepack": "npm run build:ui",
+    "start": "node --env-file-if-exists=.env bin/9router-gateway.js",
+    "dev": "node --env-file-if-exists=.env --watch bin/9router-gateway.js",
     "dev:ui": "vite --config ui/vite.config.js",
     "build:ui": "vite build --config ui/vite.config.js",
     "test": "node --test",

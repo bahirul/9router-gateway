@@ -20,15 +20,14 @@ Requirements:
 - A running 9Router instance
 - The five default 9Router models or combos: `smart-small`, `smart-medium`, `smart-planning`, `smart-large`, and `smart-vision`
 
-Install and start the gateway:
+Install globally and start the gateway:
 
 ```bash
-npm install
-npm run build:ui
-cp config.example.yaml config.yaml
-cp .env.example .env
-npm start
+npm install -g @bahirul/9router-gateway
+9router-gateway
 ```
+
+If you want to customize defaults, place a `config.yaml` and optional `.env` in the directory where you run the command.
 
 Open `http://127.0.0.1:20129/dashboard`. The initial admin password is `smart9router`. Change it from the System page or from the command line:
 
