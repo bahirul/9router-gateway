@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api, setCsrfToken } from "./api";
+import { api, setCsrfToken, setUnauthorizedHandler } from "./api";
 import { Button, Icon, Input, Layout } from "./components";
 import {
   ApiKeysPage,
@@ -11,7 +11,7 @@ import {
   SystemPage,
 } from "./pages";
 
-function Login({ onLogin }) {
+function Login({ notice, onLogin }) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -24,6 +24,7 @@ function Login({ onLogin }) {
     try {
       const session = await api("/api/admin/session", {
         method: "POST",
+        skipUnauthorized: true,
         body: JSON.stringify({ password }),
       });
       setCsrfToken(session.csrfToken);
@@ -70,6 +71,7 @@ function Login({ onLogin }) {
               </Button>
             </div>
           </label>
+          {notice && <div className="rounded-[10px] bg-warning/10 px-3 py-2 text-sm text-warning">{notice}</div>}
           {error && <div className="rounded-[10px] bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div>}
           <Button className="w-full" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</Button>
         </form>
@@ -81,6 +83,7 @@ function Login({ onLogin }) {
 
 export default function App() {
   const [session, setSession] = useState(undefined);
+  const [loginNotice, setLoginNotice] = useState("");
   const [theme, setTheme] = useState(() => localStorage.getItem("smart-router-theme") || "dark");
 
   useEffect(() => {
@@ -89,7 +92,16 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    api("/api/admin/session")
+    setUnauthorizedHandler(() => {
+      setCsrfToken("");
+      setLoginNotice("Session expired. Sign in again.");
+      setSession(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
+    api("/api/admin/session", { skipUnauthorized: true })
       .then((value) => {
         if (value.authenticated) setCsrfToken(value.csrfToken);
         setSession(value.authenticated ? value : null);
@@ -98,15 +110,21 @@ export default function App() {
   }, []);
 
   async function logout() {
-    try { await api("/api/admin/session", { method: "DELETE" }); } catch {}
+    try { await api("/api/admin/session", { method: "DELETE", skipUnauthorized: true }); } catch {}
     setCsrfToken("");
+    setLoginNotice("");
     setSession(null);
+  }
+
+  function login(value) {
+    setLoginNotice("");
+    setSession(value);
   }
 
   if (session === undefined) {
     return <div className="grid min-h-screen place-items-center bg-bg text-text-muted"><Icon className="animate-spin text-3xl">progress_activity</Icon></div>;
   }
-  if (!session) return <Login onLogin={setSession} />;
+  if (!session) return <Login notice={loginNotice} onLogin={login} />;
 
   return (
     <BrowserRouter>
