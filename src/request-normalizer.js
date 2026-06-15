@@ -61,7 +61,7 @@ function lastMeaningful(messages, role) {
   return [...messages].reverse().find((message) => message.role === role && message.text.trim())?.text.trim() || "";
 }
 
-export function detectRequestFormat(pathname, body) {
+function detectRequestFormat(pathname, body) {
   if (pathname.endsWith("/messages")) return "anthropic";
   if (pathname.endsWith("/responses") || body.input !== undefined) return "openai-responses";
   return "openai-chat";
@@ -100,7 +100,7 @@ export function normalizeRequest(pathname, body) {
   };
 }
 
-export function conversationFingerprint(normalized, headers = {}) {
+function conversationFingerprint(normalized, headers = {}) {
   const bodySeed = [
     normalized.systemText,
     normalized.firstUserText,

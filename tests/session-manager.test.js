@@ -8,7 +8,8 @@ function request(headers = {}) {
 
 test("creates HttpOnly sessions and enforces CSRF on mutations", () => {
   const manager = new SessionManager({ ttlMs: 60_000 });
-  const authenticated = manager.authenticate("127.0.0.1", "secret", "secret", true);
+  manager.setPasswordVerifier((candidate) => candidate === "secret");
+  const authenticated = manager.authenticate("127.0.0.1", "secret", true);
   assert.match(authenticated.cookie, /HttpOnly/);
   assert.match(authenticated.cookie, /SameSite=Strict/);
   assert.match(authenticated.cookie, /Secure/);
@@ -28,22 +29,23 @@ test("creates HttpOnly sessions and enforces CSRF on mutations", () => {
   assert.throws(() => manager.require(request({ cookie })), (error) => error.status === 401);
 });
 
-test("rate limits repeated invalid admin keys per client", () => {
+test("rate limits repeated invalid admin passwords per client", () => {
   const manager = new SessionManager({
     ttlMs: 60_000,
     maxAttempts: 2,
     attemptWindowMs: 60_000,
   });
+  manager.setPasswordVerifier((candidate) => candidate === "secret");
   assert.throws(
-    () => manager.authenticate("client", "wrong", "secret"),
+    () => manager.authenticate("client", "wrong"),
     (error) => error.status === 401,
   );
   assert.throws(
-    () => manager.authenticate("client", "wrong", "secret"),
+    () => manager.authenticate("client", "wrong"),
     (error) => error.status === 401,
   );
   assert.throws(
-    () => manager.authenticate("client", "secret", "secret"),
+    () => manager.authenticate("client", "secret"),
     (error) => error.status === 429,
   );
 });

@@ -29,9 +29,7 @@ export class SessionManager {
     for (const [ip, attempt] of this.attempts) if (attempt.resetAt <= now) this.attempts.delete(ip);
   }
 
-  authenticate(ip, candidate, configuredKeyOrSecure = false, secure = false) {
-    const expectedKey = typeof configuredKeyOrSecure === "string" ? configuredKeyOrSecure : null;
-    const useSecureCookie = typeof configuredKeyOrSecure === "boolean" ? configuredKeyOrSecure : secure;
+  authenticate(ip, candidate, secure = false) {
     this.cleanup();
     const now = Date.now();
     const attempt = this.attempts.get(ip);
@@ -40,11 +38,7 @@ export class SessionManager {
       error.status = 429;
       throw error;
     }
-    const verified = this.adminPasswordVerifier
-      ? this.adminPasswordVerifier(candidate)
-      : expectedKey
-        ? safeEqual(candidate, expectedKey)
-        : false;
+    const verified = this.adminPasswordVerifier ? this.adminPasswordVerifier(candidate) : false;
     if (!candidate || !verified) {
       this.attempts.set(ip, {
         count: (attempt?.count || 0) + 1,
@@ -61,7 +55,7 @@ export class SessionManager {
     this.sessions.set(id, { csrfToken, expiresAt });
     return {
       session: { csrfToken, expiresAt },
-      cookie: `smart_router_session=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(this.ttlMs / 1000)}${useSecureCookie ? "; Secure" : ""}`,
+      cookie: `smart_router_session=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(this.ttlMs / 1000)}${secure ? "; Secure" : ""}`,
     };
   }
 

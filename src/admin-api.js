@@ -81,7 +81,7 @@ export function createAdminApi(context) {
         const body = await readJson(req, config.server.maxBodyBytes);
         const result = sessions.authenticate(
           clientIp(req),
-          body.password || body.adminKey || "",
+          body.password || "",
           secureRequest(req),
         );
         metrics.increment("smart_router_ui_login_total", { result: "success" });

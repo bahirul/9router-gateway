@@ -114,13 +114,6 @@ function mergeDeep(base, override) {
   return result;
 }
 
-function discardLegacyUiSetting(config) {
-  if (!isObject(config?.server)) return config;
-  delete config.server.uiEnabled;
-  if (!Object.keys(config.server).length) delete config.server;
-  return config;
-}
-
 function interpolateEnv(text) {
   return text.replace(/\$\{([A-Z0-9_]+)(?::-([^}]*))?\}/g, (_, name, fallback = "") => {
     return process.env[name] ?? fallback;
@@ -186,7 +179,6 @@ function assertPositiveNumber(value, name) {
 }
 
 function validate(config) {
-  delete config.server.uiEnabled;
   assertPositiveNumber(config.server.port || 1, "server.port");
   assertPositiveNumber(config.server.maxBodyBytes, "server.maxBodyBytes");
   assertPositiveNumber(config.upstream.requestTimeoutMs, "upstream.requestTimeoutMs");
@@ -341,11 +333,11 @@ function publicConfig(config) {
 export class RuntimeConfigManager {
   constructor(configPath = process.env.SMART_ROUTER_CONFIG || "./config.yaml") {
     this.configPath = path.resolve(configPath);
-    this.fileConfig = discardLegacyUiSetting(readYaml(this.configPath));
+    this.fileConfig = readYaml(this.configPath);
     const preRuntime = mergeDeep(DEFAULT_CONFIG, this.fileConfig);
     const dataDir = path.resolve(process.env.SMART_ROUTER_DATA_DIR || preRuntime.logging.directory);
     this.runtimePath = path.join(dataDir, "runtime-config.json");
-    this.runtimeOverrides = discardLegacyUiSetting(readJson(this.runtimePath));
+    this.runtimeOverrides = readJson(this.runtimePath);
     this.listeners = new Set();
     this.reload();
   }
@@ -430,8 +422,4 @@ export class RuntimeConfigManager {
   }
 }
 
-export function loadConfig(configPath = process.env.SMART_ROUTER_CONFIG || "./config.yaml") {
-  return new RuntimeConfigManager(configPath).get();
-}
-
-export { DEFAULT_CONFIG, ENV_FIELDS, UI_EDITABLE_PATHS, mergeDeep, publicConfig, validate };
+export { DEFAULT_CONFIG, mergeDeep, publicConfig, validate };

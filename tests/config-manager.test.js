@@ -16,8 +16,6 @@ classifier:
   enabled: false
 upstream:
   strictModelValidation: false
-security:
-  adminKey: test-admin
 `);
   return { directory, configPath };
 }
@@ -66,28 +64,6 @@ test("environment-managed editable fields are reported and rejected", async () =
   } finally {
     if (previous === undefined) delete process.env.SMART_ROUTER_SHADOW_MODE;
     else process.env.SMART_ROUTER_SHADOW_MODE = previous;
-  }
-});
-
-test("legacy UI disable settings are ignored", () => {
-  const previous = process.env.SMART_ROUTER_UI_ENABLED;
-  process.env.SMART_ROUTER_UI_ENABLED = "false";
-  try {
-    const { directory, configPath } = configFixture();
-    fs.appendFileSync(configPath, "\nserver:\n  uiEnabled: false\n");
-    fs.writeFileSync(path.join(directory, "runtime-config.json"), JSON.stringify({
-      server: { uiEnabled: false },
-    }));
-    const manager = new RuntimeConfigManager(configPath);
-    const state = manager.describe();
-
-    assert.equal(manager.get().server.uiEnabled, undefined);
-    assert.equal(state.config.server, undefined);
-    assert.equal(state.overrides.server, undefined);
-    assert.equal(state.locked["server.uiEnabled"], undefined);
-  } finally {
-    if (previous === undefined) delete process.env.SMART_ROUTER_UI_ENABLED;
-    else process.env.SMART_ROUTER_UI_ENABLED = previous;
   }
 });
 
