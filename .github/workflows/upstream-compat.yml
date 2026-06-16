@@ -15,12 +15,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: docker run -d --name 9router -p 20128:20128 decolua/9router:latest
+      - run: docker run -d --name 9router -p 20128:20128 -e REQUIRE_API_KEY=false decolua/9router:latest
       - run: |
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:20128/v1/models && break
+            curl -fsS http://127.0.0.1:20128/v1/models && exit 0
             sleep 2
           done
+          echo "9Router did not become ready"
+          exit 1
       - run: npm run smoke:upstream
       - if: always()
         run: docker logs 9router
@@ -35,12 +37,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: docker build -t 9router:master https://github.com/decolua/9router.git#master
-      - run: docker run -d --name 9router-master -p 20128:20128 9router:master
+      - run: docker run -d --name 9router-master -p 20128:20128 -e REQUIRE_API_KEY=false 9router:master
       - run: |
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:20128/v1/models && break
+            curl -fsS http://127.0.0.1:20128/v1/models && exit 0
             sleep 2
           done
+          echo "9Router master did not become ready"
+          exit 1
       - run: npm run smoke:upstream
       - if: always()
         run: docker logs 9router-master
