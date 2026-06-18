@@ -1298,10 +1298,10 @@ export function SystemPage() {
   const gatewayRootUrl = status.proxyBaseUrl.replace(/\/v1\/?$/, "");
   const endpointExamples = {
     openai: {
-      title: "Codex CLI config.toml",
+      title: "Codex CLI config",
       description: "Minimal ~/.codex/config.toml + ~/.codex/auth.json for this gateway.",
-      language: "toml + json",
-      body: `# ~/.codex/config.toml\n# 9Router Configuration for Codex CLI\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\n\n// ~/.codex/auth.json\n${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "<your API key>" }, null, 2)}`,
+      language: "text",
+      body: `~/.codex/config.toml\n# 9Router Configuration for Codex CLI\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\n\n~/.codex/auth.json\n${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "<your API key>" }, null, 2)}`,
     },
     anthropic: {
       title: "Claude Code settings.json",
@@ -1416,7 +1416,7 @@ export function SystemPage() {
           <div className="space-y-3 text-sm">
             <div><p className="text-text-muted">Runtime override store</p><code className="break-all text-xs">{config.runtimeStore || config.runtimePath || "In-memory test configuration"}</code></div>
             <div><p className="mb-2 text-text-muted">Editable configuration</p><p>Dashboard settings are stored in SQLite and are not locked by environment variables.</p></div>
-            <div><p className="mb-2 text-text-muted">Active dashboard overrides</p><pre className="max-h-44 overflow-auto rounded bg-bg p-3 text-xs">{JSON.stringify(config.overrides, null, 2)}</pre></div>
+            <div><p className="mb-2 text-text-muted">Active dashboard overrides</p><pre className="max-h-44 w-full max-w-full min-w-0 overflow-auto whitespace-pre-wrap break-words rounded bg-bg p-3 text-xs">{JSON.stringify(config.overrides, null, 2)}</pre></div>
           </div>
         </Card>
         <Card title="Maintenance">

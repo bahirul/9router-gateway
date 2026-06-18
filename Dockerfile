@@ -16,6 +16,7 @@ ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+COPY bin ./bin
 COPY src ./src
 COPY --from=build /app/ui/dist ./ui/dist
 COPY config.example.yaml ./config.example.yaml
@@ -30,4 +31,4 @@ VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:20129/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["node", "src/server.js"]
+CMD ["node", "bin/9router-gateway.js"]
