@@ -13,18 +13,30 @@ function upstreamHeaders(apiKey) {
 }
 
 function textFromChatCompletion(payload) {
+  if (typeof payload?.output_text === "string") return payload.output_text;
+  if (Array.isArray(payload?.output)) {
+    return payload.output.flatMap((item) => item?.content || [])
+      .map((part) => part?.text || part?.input_text || part?.output_text || "")
+      .filter(Boolean)
+      .join("\n");
+  }
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((part) => typeof part === "string" ? part : part?.text || "").join("\n");
+    return content.map((part) => typeof part === "string" ? part : part?.text || part?.input_text || part?.output_text || "").join("\n");
   }
   return "";
 }
 
 function parseJsonObject(text) {
-  try { return JSON.parse(text); } catch {}
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("judge response did not contain JSON");
+  const cleaned = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+  try { return JSON.parse(cleaned); } catch {}
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) {
+    const error = new Error(`judge response did not contain JSON: ${cleaned.slice(0, 200) || "empty response"}`);
+    error.status = 502;
+    throw error;
+  }
   return JSON.parse(match[0]);
 }
 
@@ -59,9 +71,32 @@ function correctionPrompt(records, targets) {
     },
     {
       role: "user",
-      content: JSON.stringify({ targets, records }, null, 2),
+      content: `${JSON.stringify({ targets, records }, null, 2)}\n\nReturn only the JSON object. Do not include markdown, prose, or code fences.`,
     },
   ];
+}
+
+async function fetchJudge(fetchImpl, url, headers, body, timeoutMs) {
+  const request = {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  };
+  const response = await fetchImpl(url, request);
+  if (response.ok || !body.response_format) return response;
+  const detail = await response.text().catch(() => "");
+  if (![400, 404, 422].includes(response.status) || !/response_format|json/i.test(detail)) {
+    return new Response(detail, { status: response.status, headers: { "Content-Type": "text/plain" } });
+  }
+  const fallbackBody = { ...body };
+  delete fallbackBody.response_format;
+  return fetchImpl(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(fallbackBody),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
 }
 
 function normalizeSuggestion(raw, decision, targets, minConfidence) {
@@ -170,17 +205,18 @@ export class DecisionCorrector {
     }
 
     if (eligible.length) {
-      const response = await this.fetchImpl(`${config.upstream.baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
-        method: "POST",
-        headers: upstreamHeaders(config.upstream.apiKey),
-        body: JSON.stringify({
+      const response = await fetchJudge(
+        this.fetchImpl,
+        `${config.upstream.baseUrl.replace(/\/$/, "")}/v1/chat/completions`,
+        upstreamHeaders(config.upstream.apiKey),
+        {
           model,
           temperature: 0,
           response_format: { type: "json_object" },
           messages: correctionPrompt(eligible.map(summarizeDecision), config.routing.targets),
-        }),
-        signal: AbortSignal.timeout(config.upstream.requestTimeoutMs),
-      });
+        },
+        config.upstream.requestTimeoutMs,
+      );
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
         const error = new Error(`judge model returned ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);

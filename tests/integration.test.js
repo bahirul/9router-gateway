@@ -68,7 +68,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
     upstreamRequests.push({ url: req.url, body });
     if (body.response_format?.type === "json_object") {
-      const reviewInput = JSON.parse(body.messages[1].content);
+      const reviewInput = JSON.parse(body.messages[1].content.match(/\{[\s\S]*\}/)[0]);
       res.setHeader("Content-Type", "application/json");
       return res.end(JSON.stringify({
         choices: [{ message: { content: JSON.stringify({

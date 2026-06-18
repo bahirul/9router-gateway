@@ -108,6 +108,36 @@ test("previews and applies upstream model decision corrections", async (t) => {
   assert.equal(store.get("request-1").feedback.expectedTarget, "smart-planning");
 });
 
+test("retries judge call without response_format when upstream rejects it", async (t) => {
+  const store = await createStore(t);
+  seedDecision(store);
+  const catalog = { ready: true, models: new Set(["smart-large"]) };
+  const calls = [];
+  const corrector = new DecisionCorrector({
+    store,
+    catalog,
+    metrics: new Metrics(),
+    getConfig: () => mergeDeep(DEFAULT_CONFIG, { upstream: { baseUrl: "http://upstream.test", apiKey: "" } }),
+    getRevision: () => "rev-1",
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body);
+      if (body.response_format) {
+        return new Response("response_format json_object not supported", { status: 400 });
+      }
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "```json\n{\"items\":[{\"requestId\":\"request-1\",\"verdict\":\"correct\",\"confidence\":0.8}]}\n```" } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    },
+  });
+
+  const preview = await corrector.preview({ limit: 1, judgeModel: "smart-large" });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].response_format?.type, "json_object");
+  assert.equal(calls[1].response_format, undefined);
+  assert.equal(preview.items[0].suggestion.verdict, "correct");
+});
+
 test("router uses accepted prompt corrections for future matching prompts", async (t) => {
   const store = await createStore(t);
   const { body, normalized } = seedDecision(store, { requestId: "source-request" });
