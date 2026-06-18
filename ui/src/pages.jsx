@@ -664,6 +664,8 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   const [rating, setRating] = useState(item.feedback?.rating || 0);
   const [expectedTarget, setExpectedTarget] = useState(item.feedback?.expectedTarget || "");
   const [note, setNote] = useState(item.feedback?.note || "");
+  const [createPromptCorrection, setCreatePromptCorrection] = useState(false);
+  const [promptCorrectionTouched, setPromptCorrectionTouched] = useState(false);
   const [catalog, setCatalog] = useState([]);
   const [review, setReview] = useState(null);
   const [reviewOptions, setReviewOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
@@ -671,10 +673,17 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   const [reviewError, setReviewError] = useState("");
   const hasFeedback = Boolean(item.feedback);
   useEffect(() => { api("/api/admin/catalog").then((value) => setCatalog(value.models || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!expectedTarget) {
+      setCreatePromptCorrection(false);
+      return;
+    }
+    if (!promptCorrectionTouched) setCreatePromptCorrection(rating === 1 || rating === 2);
+  }, [rating, expectedTarget, promptCorrectionTouched]);
   async function saveFeedback() {
     const updated = await api(`/api/admin/decisions/${encodeURIComponent(item.requestId)}/feedback`, {
       method: "PUT",
-      body: JSON.stringify({ rating, expectedTarget: expectedTarget || null, note: note || null }),
+      body: JSON.stringify({ rating, expectedTarget: expectedTarget || null, note: note || null, createPromptCorrection }),
     });
     onUpdate(updated);
   }
@@ -685,6 +694,8 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
     setRating(0);
     setExpectedTarget("");
     setNote("");
+    setCreatePromptCorrection(false);
+    setPromptCorrectionTouched(false);
     onUpdate(updated);
   }
   async function reviewDecision() {
@@ -764,6 +775,10 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
             </div>
             <Field label="Rating"><div className="flex gap-1">{[1,2,3,4,5].map((value) => <button key={value} className={`text-2xl ${value <= rating ? "text-warning" : "text-surface-3"}`} onClick={() => setRating(value)}>★</button>)}</div></Field>
             <Field label="Expected target"><Select value={expectedTarget} onChange={(event) => setExpectedTarget(event.target.value)}><option value="">No correction</option>{["smart-small","smart-medium","smart-planning","smart-large","smart-vision"].map((value) => <option key={value}>{value}</option>)}</Select></Field>
+            <label className={`flex items-start gap-3 rounded-[10px] border border-border-subtle bg-bg p-3 text-sm ${expectedTarget ? "" : "opacity-60"}`}>
+              <input type="checkbox" className="mt-1" checked={createPromptCorrection} disabled={!expectedTarget} onChange={(event) => { setPromptCorrectionTouched(true); setCreatePromptCorrection(event.target.checked); }} />
+              <span><span className="font-medium">Create routing correction from this feedback</span><span className="mt-1 block text-xs text-text-muted">Future requests with the same prompt hash can use the selected expected target.</span></span>
+            </label>
             <Field label="Note"><textarea className="min-h-24 w-full rounded-[10px] border border-border bg-bg p-3 text-sm outline-none focus:border-primary" value={note} onChange={(event) => setNote(event.target.value)} /></Field>
             <div className="flex gap-3">
               <Button disabled={!rating} onClick={saveFeedback}>Save feedback</Button>

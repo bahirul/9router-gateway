@@ -331,6 +331,70 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   assert.equal(decisionDetail.request.body.model, "auto");
   assert.match(decisionDetail.prompt, /Translate hello/);
 
+  const manualFeedbackDecision = decisions.items.find((item) => item.prompt?.includes("Audit production authorization security"));
+  assert.ok(manualFeedbackDecision);
+  const feedbackOnly = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
+    method: "PUT",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ rating: 2, expectedTarget: "smart-small", note: "too expensive" }),
+  }).then((response) => response.json());
+  assert.equal(feedbackOnly.feedback.expectedTarget, "smart-small");
+
+  const unchangedByFeedback = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Audit production authorization security." }],
+    }),
+  });
+  assert.equal((await unchangedByFeedback.json()).model, "smart-large");
+
+  const feedbackCorrection = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
+    method: "PUT",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ rating: 2, expectedTarget: "smart-small", note: "too expensive", createPromptCorrection: true }),
+  }).then((response) => response.json());
+  assert.equal(feedbackCorrection.feedback.expectedTarget, "smart-small");
+
+  const manuallyCorrected = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Audit production authorization security." }],
+    }),
+  });
+  assert.equal((await manuallyCorrected.json()).model, "smart-small");
+
+  const resetManualFeedback = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
+    method: "DELETE",
+    headers: {
+      Cookie: cookie,
+      "x-csrf-token": session.csrfToken,
+    },
+  });
+  assert.equal(resetManualFeedback.status, 200);
+  assert.equal((await resetManualFeedback.json()).feedback, null);
+
+  const correctedAfterReset = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Audit production authorization security." }],
+    }),
+  });
+  assert.equal((await correctedAfterReset.json()).model, "smart-large");
+
   const oldBatchPreview = await fetch(`${baseUrl}/api/admin/decisions/corrections/preview`, {
     method: "POST",
     headers: {
@@ -434,7 +498,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   });
   assert.equal(relogin.status, 200);
 
-  assert.equal(upstreamRequests.length, 9);
+  assert.equal(upstreamRequests.length, 12);
   assert.ok(upstreamRequests.some((request) => request.body.response_format?.type === "json_object"));
 });
 

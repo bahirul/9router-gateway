@@ -176,6 +176,126 @@ test("persists direct decision review feedback and prompt corrections", async (t
   assert.equal(store.getPromptCorrection("prompt-correction-hash").expectedTargetKey, "planning");
 });
 
+test("creates manual routing corrections from feedback only when requested", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-manual-corrections-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  store.decision({
+    requestId: "manual-correction-request",
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: "manual-correction-hash",
+    requestedModel: "auto",
+    target: "smart-medium",
+    targetKey: "medium",
+    task: "coding",
+    complexity: "medium",
+    score: 55,
+    confidence: 0.7,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 20,
+    client: "test",
+    prompt: "Plan a rollout",
+    request: requestSnapshot({ model: "auto", messages: [{ role: "user", content: "Plan a rollout" }] }),
+    reasons: ["coding"],
+    features: { ruleScore: 55 },
+  });
+
+  const targets = { small: "smart-small", medium: "smart-medium", planning: "smart-planning" };
+  const feedbackOnly = store.feedbackWithCorrection({
+    requestId: "manual-correction-request",
+    rating: 2,
+    expectedTarget: "smart-planning",
+    note: "needs planning",
+  }, { targets });
+  assert.equal(feedbackOnly.promptCorrection, false);
+  assert.equal(store.getPromptCorrection("manual-correction-hash"), null);
+
+  const corrected = store.feedbackWithCorrection({
+    requestId: "manual-correction-request",
+    rating: 2,
+    expectedTarget: "smart-planning",
+    note: "needs planning",
+  }, { createPromptCorrection: true, targets });
+  assert.equal(corrected.promptCorrection, true);
+  assert.equal(store.getPromptCorrection("manual-correction-hash").expectedTargetKey, "planning");
+  assert.equal(store.getPromptCorrection("manual-correction-hash").correctionRunId, "manual_feedback");
+
+  store.clearFeedback("manual-correction-request");
+  assert.equal(store.get("manual-correction-request").feedback, null);
+  assert.equal(store.getPromptCorrection("manual-correction-hash"), null);
+});
+
+test("validates manual routing correction inputs", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-manual-correction-validation-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  store.decision({
+    requestId: "missing-context-request",
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: null,
+    requestedModel: "auto",
+    target: "smart-medium",
+    targetKey: "medium",
+    task: "general",
+    complexity: "low",
+    score: 10,
+    confidence: 0.5,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 10,
+    client: "test",
+    reasons: [],
+    features: {},
+  });
+
+  assert.throws(() => store.feedbackWithCorrection({
+    requestId: "missing-context-request",
+    rating: 2,
+    expectedTarget: "smart-planning",
+  }, { createPromptCorrection: true, targets: { planning: "smart-planning" } }), /stored prompt context/);
+
+  store.decision({
+    requestId: "invalid-target-request",
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: "invalid-target-hash",
+    requestedModel: "auto",
+    target: "smart-medium",
+    targetKey: "medium",
+    task: "general",
+    complexity: "low",
+    score: 10,
+    confidence: 0.5,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 10,
+    client: "test",
+    reasons: [],
+    features: {},
+  });
+  assert.throws(() => store.feedbackWithCorrection({
+    requestId: "invalid-target-request",
+    rating: 2,
+    expectedTarget: "smart-unknown",
+  }, { createPromptCorrection: true, targets: { planning: "smart-planning" } }), /configured routing target/);
+});
+
 test("enforces api key request quotas", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-key-quotas-"));
   const store = new DecisionStore({ directory, logger: { warn() {} } });

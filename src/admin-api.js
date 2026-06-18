@@ -419,13 +419,18 @@ export function createAdminApi(context) {
           sendJson(res, 404, { error: "Decision not found" });
           return true;
         }
-        context.logStore.feedback({
+        const stored = {
           requestId,
           rating: body.rating,
           expectedTarget: body.expectedTarget || null,
           note: body.note || null,
+        };
+        const result = store.feedbackWithCorrection(stored, {
+          createPromptCorrection: Boolean(body.createPromptCorrection),
+          targets: config.routing.targets,
         });
-        sendJson(res, 200, store.get(requestId));
+        context.logStore.append("feedback.jsonl", { timestamp: new Date().toISOString(), ...stored });
+        sendJson(res, 200, result.decision);
         return true;
       }
 
@@ -435,7 +440,7 @@ export function createAdminApi(context) {
           sendJson(res, 404, { error: "Decision not found" });
           return true;
         }
-        context.logStore.clearFeedback(requestId);
+        store.clearFeedback(requestId);
         sendJson(res, 200, store.get(requestId));
         return true;
       }

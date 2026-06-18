@@ -521,8 +521,61 @@ export class DecisionStore {
     ));
   }
 
+  feedbackWithCorrection(record, { createPromptCorrection = false, targets = {} } = {}) {
+    if (!this.ready) return { decision: null, promptCorrection: false, degraded: true };
+    const decision = this.get(record.requestId);
+    if (!decision) return null;
+    const targetEntry = Object.entries(targets).find(([, target]) => target === record.expectedTarget);
+    if (createPromptCorrection && !record.expectedTarget) {
+      const error = new Error("expectedTarget is required to create a routing correction");
+      error.status = 400;
+      throw error;
+    }
+    if (createPromptCorrection && !targetEntry) {
+      const error = new Error("expectedTarget must match a configured routing target");
+      error.status = 400;
+      throw error;
+    }
+    if (createPromptCorrection && !decision.promptHash) {
+      const error = new Error("stored prompt context is required to create a routing correction");
+      error.status = 400;
+      throw error;
+    }
+    const now = record.updatedAt || new Date().toISOString();
+    this.execute(() => {
+      this.db.prepare(`
+        INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
+        ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
+        note=excluded.note,updatedAt=excluded.updatedAt
+      `).run(record.requestId, record.rating, record.expectedTarget || null, record.note || null, now);
+      if (createPromptCorrection) {
+        this.db.prepare(`
+          INSERT OR IGNORE INTO correctionRuns(
+            id,createdAt,status,judgeModel,requestedCount,eligibleCount,promptVersion,configRevision
+          ) VALUES('manual_feedback',?,'applied','operator-feedback',0,0,'manual-feedback','manual-feedback')
+        `).run(now);
+        this.db.prepare(`
+          INSERT INTO promptCorrections(
+            promptHash,expectedTargetKey,expectedTarget,sourceRequestId,correctionRunId,confidence,rationale,active,createdAt,updatedAt
+          ) VALUES(?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(promptHash) DO UPDATE SET expectedTargetKey=excluded.expectedTargetKey,
+          expectedTarget=excluded.expectedTarget,sourceRequestId=excluded.sourceRequestId,
+          correctionRunId=excluded.correctionRunId,confidence=excluded.confidence,
+          rationale=excluded.rationale,active=1,updatedAt=excluded.updatedAt
+        `).run(
+          decision.promptHash, targetEntry[0], record.expectedTarget, record.requestId,
+          "manual_feedback", 1, record.note || "Operator feedback", 1, now, now,
+        );
+      }
+    });
+    return { decision: this.get(record.requestId), promptCorrection: Boolean(createPromptCorrection) };
+  }
+
   clearFeedback(requestId) {
-    this.execute(() => this.db.prepare(`DELETE FROM feedback WHERE requestId=?`).run(requestId));
+    this.execute(() => {
+      this.db.prepare(`DELETE FROM feedback WHERE requestId=?`).run(requestId);
+      this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE sourceRequestId=? AND correctionRunId='manual_feedback'`).run(new Date().toISOString(), requestId);
+    });
   }
 
   clearDecisions() {
