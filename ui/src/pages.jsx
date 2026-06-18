@@ -410,6 +410,9 @@ export function TaskClassifierPage() {
   const [form, setForm] = useState(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [classDialog, setClassDialog] = useState(null);
+  const [classIdDraft, setClassIdDraft] = useState("");
+  const [deleteDialog, setDeleteDialog] = useState(null);
 
   async function load() {
     try {
@@ -424,28 +427,51 @@ export function TaskClassifierPage() {
 
   function field(path, value) { setForm((current) => setNested(current, path, value)); setSaved(false); }
   function setTaskClasses(taskClasses) { field("routing.taskClasses", taskClasses); }
+  function normalizeTaskClassId(value) { return String(value || "").trim().toLowerCase().replace(/\s+/g, "_"); }
+  function taskClassDraftError() {
+    const id = normalizeTaskClassId(classIdDraft);
+    if (!id) return "Task class id is required";
+    if (form.routing.taskClasses?.[id]) return `Task class ${id} already exists`;
+    return "";
+  }
   function updateTaskClass(id, patch) {
     setTaskClasses({
       ...(form.routing.taskClasses || {}),
       [id]: { ...(form.routing.taskClasses?.[id] || {}), ...patch },
     });
   }
-  function addTaskClass(source = null) {
-    const requested = window.prompt("Task class id (lowercase letters, numbers, _ or -)", source ? `${source}_copy` : "custom");
-    const id = String(requested || "").trim().toLowerCase().replace(/\s+/g, "_");
-    if (!id) return;
-    if (form.routing.taskClasses?.[id]) { setError(`Task class ${id} already exists`); return; }
+  function openClassDialog(source = null) {
+    setClassDialog({ source });
+    setClassIdDraft(source ? `${source}_copy` : "custom");
+    setError("");
+  }
+  function closeClassDialog() {
+    setClassDialog(null);
+    setClassIdDraft("");
+  }
+  function confirmClassDialog() {
+    const id = normalizeTaskClassId(classIdDraft);
+    if (!id || form.routing.taskClasses?.[id]) return;
+    const source = classDialog?.source;
     const base = source && form.routing.taskClasses?.[source]
       ? structuredClone(form.routing.taskClasses[source])
       : { task: true, semanticLabel: id.replace(/[-_]/g, " "), semanticScore: 45, priority: 0, scoreDelta: 0, patterns: [] };
     setTaskClasses({ ...(form.routing.taskClasses || {}), [id]: base });
+    closeClassDialog();
     setError("");
   }
-  function deleteTaskClass(id) {
+  function openDeleteDialog(id) {
+    if (id === "general") return;
+    setDeleteDialog({ id });
+  }
+  function closeDeleteDialog() { setDeleteDialog(null); }
+  function confirmDeleteDialog() {
+    const id = deleteDialog?.id;
     if (id === "general") return;
     const next = { ...(form.routing.taskClasses || {}) };
     delete next[id];
     setTaskClasses(next);
+    closeDeleteDialog();
   }
   async function save() {
     try {
@@ -475,6 +501,30 @@ export function TaskClassifierPage() {
     <>
       <PageHeader title="Task Classifier" description="Dashboard-managed classifier labels, regex signals, scoring, and semantic model settings." action={<div className="flex items-center gap-3">{saved && <Badge tone="success">Saved</Badge>}<Button onClick={save}><Icon>save</Icon>Apply changes</Button></div>} />
       <ErrorBox error={error} />
+      <Dialog
+        open={Boolean(classDialog)}
+        title={classDialog?.source ? "Duplicate task class" : "Add task class"}
+        description="Use lowercase letters, numbers, underscores, or hyphens. Spaces are converted to underscores."
+        confirmLabel={classDialog?.source ? "Duplicate" : "Add class"}
+        confirmDisabled={Boolean(taskClassDraftError())}
+        onCancel={closeClassDialog}
+        onConfirm={confirmClassDialog}
+      >
+        <Field label="Task class id">
+          <Input autoFocus value={classIdDraft} onChange={(event) => setClassIdDraft(event.target.value)} />
+        </Field>
+        {taskClassDraftError() && <p className="mt-2 text-sm text-danger">{taskClassDraftError()}</p>}
+        {!taskClassDraftError() && <p className="mt-2 text-sm text-text-muted">Will be saved as <code className="rounded bg-bg px-1 py-0.5 font-mono text-text-main">{normalizeTaskClassId(classIdDraft)}</code>.</p>}
+      </Dialog>
+      <Dialog
+        open={Boolean(deleteDialog)}
+        title="Delete task class?"
+        description={`Remove ${deleteDialog?.id || "this task class"} from the classifier editor. This is not persisted until you apply changes.`}
+        confirmLabel="Delete"
+        destructive
+        onCancel={closeDeleteDialog}
+        onConfirm={confirmDeleteDialog}
+      />
       <div className="grid gap-5 xl:grid-cols-2">
         <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${(form.classifier.revision || "unknown").slice(0, 8)}`}>
           <div className="mb-4 flex items-start justify-between gap-3">
@@ -494,7 +544,7 @@ export function TaskClassifierPage() {
           title="Task classes"
           subtitle="Classifier labels, regex signals, scoring, and hard floors."
           className="xl:col-span-2"
-          action={<Button variant="secondary" onClick={() => addTaskClass()}><Icon>add</Icon>Add class</Button>}
+          action={<Button variant="secondary" onClick={() => openClassDialog()}><Icon>add</Icon>Add class</Button>}
         >
           <div className="space-y-4">
             {Object.entries(form.routing.taskClasses || {}).map(([id, taskClass]) => {
@@ -507,8 +557,8 @@ export function TaskClassifierPage() {
                       <p className="text-xs text-text-muted">{taskClass.task === false ? "Signal-only class" : "Reported task class"}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={() => addTaskClass(id)}>Duplicate</Button>
-                      <Button variant="ghost" className="min-h-8 px-2 py-1 text-xs text-danger hover:text-danger" disabled={isGeneral} onClick={() => deleteTaskClass(id)}>Delete</Button>
+                      <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={() => openClassDialog(id)}>Duplicate</Button>
+                      <Button variant="ghost" className="min-h-8 px-2 py-1 text-xs text-danger hover:text-danger" disabled={isGeneral} onClick={() => openDeleteDialog(id)}>Delete</Button>
                     </div>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
