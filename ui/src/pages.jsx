@@ -205,16 +205,20 @@ export function OverviewPage() {
       <div className="mb-6 grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Card title="Request volume" subtitle={requestVolumeSubtitle(range)}>
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
-              <AreaChart data={timeline} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <defs><linearGradient id="routeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#E56A4A" stopOpacity={0.35}/><stop offset="95%" stopColor="#E56A4A" stopOpacity={0}/></linearGradient></defs>
-                <CartesianGrid stroke="var(--color-border-subtle)" vertical={false} />
-                <XAxis dataKey="timestamp" tickFormatter={(value) => formatTimelineTick(value, range)} stroke="var(--color-text-muted)" fontSize={11} />
-                <YAxis width={hasTimelineData ? 40 : 1} tick={hasTimelineData} tickLine={hasTimelineData} stroke="var(--color-text-muted)" fontSize={11} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} labelFormatter={(value) => new Date(value).toLocaleString()} />
-                <Area type="monotone" dataKey="requests" stroke="#E56A4A" fill="url(#routeFill)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {hasTimelineData ? (
+              <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
+                <AreaChart data={timeline} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                  <defs><linearGradient id="routeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#E56A4A" stopOpacity={0.35}/><stop offset="95%" stopColor="#E56A4A" stopOpacity={0}/></linearGradient></defs>
+                  <CartesianGrid stroke="var(--color-border-subtle)" vertical={false} />
+                  <XAxis dataKey="timestamp" tickFormatter={(value) => formatTimelineTick(value, range)} stroke="var(--color-text-muted)" fontSize={11} />
+                  <YAxis width={40} stroke="var(--color-text-muted)" fontSize={11} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} labelFormatter={(value) => new Date(value).toLocaleString()} />
+                  <Area type="monotone" dataKey="requests" stroke="#E56A4A" fill="url(#routeFill)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="grid h-full place-items-center rounded-[12px] border border-dashed border-border-subtle text-sm text-text-muted">No data yet</div>
+            )}
           </div>
         </Card>
         <Card title="Targets" subtitle="Predicted routing tier">
