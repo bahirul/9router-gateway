@@ -55,6 +55,8 @@ SMART_ROUTER_DATA_DIR=./data
 SMART_ROUTER_MODEL_CACHE=./data/models
 ```
 
+Set `NINEROUTER_API_KEY` in the gateway process when the upstream 9Router URL requires authentication. Client keys created in the dashboard are separate and are not forwarded upstream.
+
 Open the dashboard:
 
 ```text

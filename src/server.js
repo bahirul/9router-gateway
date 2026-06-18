@@ -53,10 +53,13 @@ function requestHeaders(req) {
   return result;
 }
 
-function upstreamHeaders(req) {
+const CLIENT_AUTH_HEADERS = new Set(["authorization", "x-api-key"]);
+
+function upstreamHeaders(req, upstreamApiKey = "") {
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
-    if (value === undefined || HOP_BY_HOP.has(name.toLowerCase())) continue;
+    const lower = name.toLowerCase();
+    if (value === undefined || HOP_BY_HOP.has(lower) || CLIENT_AUTH_HEADERS.has(lower)) continue;
     if (Array.isArray(value)) {
       for (const item of value) headers.append(name, item);
     } else {
@@ -64,6 +67,7 @@ function upstreamHeaders(req) {
     }
   }
   headers.set("x-smart-router-proxy", "1");
+  if (upstreamApiKey) headers.set("Authorization", `Bearer ${upstreamApiKey}`);
   return headers;
 }
 
@@ -232,7 +236,7 @@ async function proxyFetch({
   try {
     const upstream = await fetchImpl(target, {
       method: req.method,
-      headers: upstreamHeaders(req),
+      headers: upstreamHeaders(req, config.upstream.apiKey),
       body: ["GET", "HEAD"].includes(req.method) ? undefined : bodyBuffer,
       signal: controller.signal,
       redirect: "manual",
@@ -523,7 +527,7 @@ export function createSmartRouter({
           if (!authorization.ok) return rejectApiKeyAuthorization(res, authorization);
         }
         const upstream = await fetchImpl(upstreamUrl(req.url, activeConfig.upstream.baseUrl), {
-          headers: upstreamHeaders(req),
+          headers: upstreamHeaders(req, activeConfig.upstream.apiKey),
           signal: AbortSignal.timeout(Math.min(activeConfig.upstream.requestTimeoutMs, 10000)),
         });
         if (!upstream.ok) {

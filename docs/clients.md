@@ -27,6 +27,8 @@ x-api-key: sk-...
 
 Keys are created from Dashboard → API Keys. A key can be limited by expiration, daily/monthly quota, and forced dispatch model.
 
+Client keys authenticate callers to this gateway only. If the upstream 9Router URL requires authentication, set `NINEROUTER_API_KEY` in the gateway process; client `Authorization` and `x-api-key` values are not forwarded upstream.
+
 ## OpenAI-Compatible Clients
 
 Use the `/v1` base URL:
@@ -63,6 +65,14 @@ Then set the client-side key when API-key enforcement is enabled:
 ```bash
 export SMART_ROUTER_API_KEY='sk-...'
 ```
+
+For remote upstream access, also set the gateway-side upstream key before starting `9router-gateway`:
+
+```bash
+export NINEROUTER_API_KEY='sk-upstream-...'
+```
+
+If the upstream response is `API key required for remote API access`, the gateway process is missing `NINEROUTER_API_KEY` or was not restarted with it.
 
 ## Claude / Anthropic Messages
 

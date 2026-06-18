@@ -382,7 +382,9 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
 
 test("api keys gate routed requests when enabled", async (t) => {
   const upstreamBodies = [];
+  const upstreamHeaders = [];
   const upstream = http.createServer((req, res) => {
+    upstreamHeaders.push(req.headers);
     res.setHeader("Content-Type", "application/json");
     if (req.method !== "GET") {
       const chunks = [];
@@ -401,7 +403,11 @@ test("api keys gate routed requests when enabled", async (t) => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-api-key-"));
   const config = mergeDeep(DEFAULT_CONFIG, {
     server: { host: "127.0.0.1", port: 0 },
-    upstream: { baseUrl: `http://127.0.0.1:${upstreamPort}`, strictModelValidation: false },
+    upstream: {
+      apiKey: "upstream-secret",
+      baseUrl: `http://127.0.0.1:${upstreamPort}`,
+      strictModelValidation: false,
+    },
     classifier: { enabled: false, cacheDir: path.join(dataDir, "models") },
     logging: { directory: dataDir },
     security: { apiKeyAuthEnabled: true },
@@ -428,6 +434,8 @@ test("api keys gate routed requests when enabled", async (t) => {
   const models = (await allowed.json()).data.map((model) => model.id);
   assert.ok(models.includes("model-a"));
   assert.ok(models.includes("auto"));
+  assert.equal(upstreamHeaders.at(-1).authorization, "Bearer upstream-secret");
+  assert.equal(upstreamHeaders.at(-1)["x-api-key"], undefined);
   assert.equal(app.decisionStore.getApiKey(created.id).quotaUsed, 0);
   assert.equal(
     app.decisionStore.db.prepare(`SELECT COUNT(*) AS total FROM apiKeyUsage`).get().total,
@@ -446,8 +454,20 @@ test("api keys gate routed requests when enabled", async (t) => {
     body: JSON.stringify({ model: "explicit/model", messages: [{ role: "user", content: "hello" }] }),
   });
   assert.equal(forcedExplicit.status, 200);
+  assert.equal(upstreamHeaders.at(-1).authorization, "Bearer upstream-secret");
+  assert.equal(upstreamHeaders.at(-1)["x-api-key"], undefined);
   assert.equal(upstreamBodies.at(-1).model, "model-a");
   assert.equal(app.decisionStore.list().items.length, 0);
+
+  const bearerResponses = await fetch(`${baseUrl}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${created.secret}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "auto", input: "Plan a migration" }),
+  });
+  assert.equal(bearerResponses.status, 200);
+  assert.equal(upstreamHeaders.at(-1).authorization, "Bearer upstream-secret");
+  assert.equal(upstreamHeaders.at(-1)["x-api-key"], undefined);
+  assert.notEqual(upstreamHeaders.at(-1).authorization, `Bearer ${created.secret}`);
 
   const forcedAuto = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
@@ -479,4 +499,51 @@ test("api keys gate routed requests when enabled", async (t) => {
   });
   assert.equal(limitedSecond.status, 429);
   assert.equal((await limitedSecond.json()).error, "api key quota exceeded");
+});
+
+test("client api keys are not forwarded when upstream api key is empty", async (t) => {
+  const upstreamHeaders = [];
+  const upstream = http.createServer((req, res) => {
+    upstreamHeaders.push(req.headers);
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ model: body.model, ok: true }));
+    });
+  });
+  const upstreamPort = await listen(upstream);
+  t.after(() => close(upstream));
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-no-upstream-key-"));
+  const config = mergeDeep(DEFAULT_CONFIG, {
+    server: { host: "127.0.0.1", port: 0 },
+    upstream: {
+      apiKey: "",
+      baseUrl: `http://127.0.0.1:${upstreamPort}`,
+      strictModelValidation: false,
+    },
+    classifier: { enabled: false, cacheDir: path.join(dataDir, "models") },
+    logging: { directory: dataDir },
+    security: { apiKeyAuthEnabled: true },
+  });
+  const app = createSmartRouter({ config, logger: { error() {}, warn() {} } });
+  await app.storageReady;
+  const created = app.decisionStore.createApiKey({ name: "client-key" });
+  const sidecarPort = await listen(app.server);
+  t.after(async () => {
+    await close(app.server);
+    app.stopBackgroundServices();
+  });
+
+  const response = await fetch(`http://127.0.0.1:${sidecarPort}/v1/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${created.secret}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "auto", input: "Plan a migration" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(upstreamHeaders.at(-1).authorization, undefined);
+  assert.equal(upstreamHeaders.at(-1)["x-api-key"], undefined);
 });

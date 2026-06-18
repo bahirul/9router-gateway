@@ -19,6 +19,8 @@ SMART_ROUTER_MODEL_CACHE=./data/models
 
 `npm start`, `npm run dev`, and the package binary use Node's `--env-file-if-exists=.env`, so a local `.env` is optional.
 
+`NINEROUTER_API_KEY` is the gateway-to-upstream credential. Dashboard API keys and client variables such as `SMART_ROUTER_API_KEY` authenticate callers to the gateway and are never forwarded to upstream 9Router.
+
 ## Config File
 
 Start with:
