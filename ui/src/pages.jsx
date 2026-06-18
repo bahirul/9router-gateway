@@ -29,6 +29,7 @@ import {
 } from "./components";
 
 const COLORS = ["#E56A4A", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
+const CHART_INITIAL_DIMENSION = { width: 1, height: 1 };
 const TASK_CLASS_COLOR = "#3B82F6";
 const COMPLEXITY_COLORS = {
   low: "#10B981",
@@ -199,7 +200,7 @@ export function OverviewPage() {
       <div className="mb-6 grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Card title="Request volume" subtitle={requestVolumeSubtitle(range)}>
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
               <AreaChart data={timeline}>
                 <defs><linearGradient id="routeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#E56A4A" stopOpacity={0.35}/><stop offset="95%" stopColor="#E56A4A" stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid stroke="var(--color-border-subtle)" vertical={false} />
@@ -213,7 +214,7 @@ export function OverviewPage() {
         </Card>
         <Card title="Targets" subtitle="Predicted routing tier">
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
               <PieChart>
                 <Pie data={objectChart(analytics.byTarget)} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={3}>
                   {objectChart(analytics.byTarget).map((entry, index) => <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />)}
@@ -249,7 +250,7 @@ function Distribution({ title, data }) {
   return (
     <Card title={title}>
       <div className="h-44">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 8 }}>
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="name" width={80} stroke="var(--color-text-muted)" fontSize={11} />
