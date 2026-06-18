@@ -606,30 +606,6 @@ export class DecisionStore {
     return { items, nextCursor: hasMore ? items.at(-1).timestamp : null, degraded: false };
   }
 
-  listForCorrection({ ids = [], filters = {}, limit = 25 } = {}) {
-    if (!this.ready) return [];
-    const where = [];
-    const params = [];
-    if (ids.length) {
-      where.push(`d.requestId IN (${ids.map(() => "?").join(",")})`);
-      params.push(...ids);
-    } else {
-      for (const [column, value] of [["targetKey", filters.target], ["task", filters.task], ["complexity", filters.complexity], ["status", filters.status], ["mode", filters.mode]]) {
-        if (value !== undefined && value !== null && value !== "") {
-          where.push(`d.${column} = ?`);
-          params.push(value);
-        }
-      }
-    }
-    const size = Math.min(25, Math.max(1, Number(limit) || 25));
-    return this.db.prepare(`
-      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt
-      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY d.timestamp DESC LIMIT ?
-    `).all(...params, size).map((row) => this.mapRow(row));
-  }
-
   get(requestId) {
     if (!this.ready) return null;
     const row = this.db.prepare(`
@@ -657,102 +633,56 @@ export class DecisionStore {
     };
   }
 
-  saveCorrectionRun(run, items) {
+  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7, enablePromptCorrection = true } = {}) {
+    if (!this.ready) return { requestId, appliedFeedback: false, promptCorrection: false, degraded: true };
+    const decision = this.get(requestId);
+    if (!decision) return null;
+    const confidence = Number(suggestion?.confidence) || 0;
+    const incorrect = suggestion?.verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget;
+    if (!incorrect || confidence < minConfidence) {
+      const error = new Error("suggestion must be an incorrect verdict above the confidence threshold");
+      error.status = 400;
+      throw error;
+    }
+    const now = new Date().toISOString();
     this.execute(() => {
       this.db.prepare(`
-        INSERT OR REPLACE INTO correctionRuns(
-          id,createdAt,appliedAt,status,judgeModel,filtersJson,requestedCount,eligibleCount,promptVersion,configRevision,error
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
+        ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
+        note=excluded.note,updatedAt=excluded.updatedAt
       `).run(
-        run.id, run.createdAt, run.appliedAt || null, run.status, run.judgeModel,
-        JSON.stringify(run.filters || null), run.requestedCount, run.eligibleCount,
-        run.promptVersion, run.configRevision, run.error || null,
+        requestId,
+        2,
+        suggestion.expectedTarget,
+        suggestion.rationale || "Decision reviewed by upstream model",
+        now,
       );
-      const statement = this.db.prepare(`
-        INSERT OR REPLACE INTO correctionItems(
-          runId,requestId,eligible,skipReason,verdict,expectedTargetKey,expectedTarget,confidence,rationale,applyDefault,applied
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
-      `);
-      for (const item of items) {
-        statement.run(
-          run.id, item.requestId, Number(item.eligible), item.skipReason || null,
-          item.verdict || null, item.expectedTargetKey || null, item.expectedTarget || null,
-          item.confidence ?? null, item.rationale || null, Number(item.applyDefault || false),
-          Number(item.applied || false),
-        );
-      }
-    });
-  }
-
-  getCorrectionRun(runId) {
-    if (!this.ready) return null;
-    const run = this.db.prepare(`SELECT * FROM correctionRuns WHERE id=?`).get(runId);
-    if (!run) return null;
-    const items = this.db.prepare(`
-      SELECT ci.*,d.promptHash,d.target,d.targetKey,d.task,d.complexity,d.score,d.confidence AS decisionConfidence
-      FROM correctionItems ci JOIN decisions d ON d.requestId=ci.requestId
-      WHERE ci.runId=? ORDER BY d.timestamp DESC
-    `).all(runId).map((item) => ({
-      ...item,
-      eligible: Boolean(item.eligible),
-      applyDefault: Boolean(item.applyDefault),
-      applied: Boolean(item.applied),
-    }));
-    return { ...run, filters: json(run.filtersJson), items };
-  }
-
-  applyCorrectionRun(runId, selectedRequestIds, { minConfidence = 0.7, enablePromptCorrections = true, writePositiveFeedback = false } = {}) {
-    if (!this.ready) return { appliedFeedback: 0, promptCorrections: 0, skipped: [], degraded: true };
-    const selected = new Set(selectedRequestIds || []);
-    const run = this.getCorrectionRun(runId);
-    if (!run) return null;
-    const now = new Date().toISOString();
-    let appliedFeedback = 0;
-    let promptCorrections = 0;
-    const skipped = [];
-    this.execute(() => {
-      for (const item of run.items) {
-        if (selected.size && !selected.has(item.requestId)) continue;
-        if (!item.eligible) { skipped.push({ requestId: item.requestId, reason: item.skipReason || "ineligible" }); continue; }
-        if (item.applied) { skipped.push({ requestId: item.requestId, reason: "already_applied" }); continue; }
-        if ((Number(item.confidence) || 0) < minConfidence) { skipped.push({ requestId: item.requestId, reason: "low_confidence" }); continue; }
-        const incorrect = item.verdict === "incorrect" && item.expectedTargetKey && item.expectedTarget;
-        if (!incorrect && !(writePositiveFeedback && item.verdict === "correct")) {
-          skipped.push({ requestId: item.requestId, reason: "no_correction" });
-          continue;
-        }
+      if (enablePromptCorrection && decision.promptHash) {
         this.db.prepare(`
-          INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
-          ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
-          note=excluded.note,updatedAt=excluded.updatedAt
+          INSERT OR IGNORE INTO correctionRuns(
+            id,createdAt,status,judgeModel,requestedCount,eligibleCount,promptVersion,configRevision
+          ) VALUES('direct_review',?,'applied','direct-review',0,0,'direct-review','direct-review')
+        `).run(now);
+        this.db.prepare(`
+          INSERT INTO promptCorrections(
+            promptHash,expectedTargetKey,expectedTarget,sourceRequestId,correctionRunId,confidence,rationale,active,createdAt,updatedAt
+          ) VALUES(?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(promptHash) DO UPDATE SET expectedTargetKey=excluded.expectedTargetKey,
+          expectedTarget=excluded.expectedTarget,sourceRequestId=excluded.sourceRequestId,
+          correctionRunId=excluded.correctionRunId,confidence=excluded.confidence,
+          rationale=excluded.rationale,active=1,updatedAt=excluded.updatedAt
         `).run(
-          item.requestId,
-          incorrect ? 2 : 5,
-          incorrect ? item.expectedTarget : null,
-          item.rationale || "Batch correction reviewed by upstream model",
-          now,
+          decision.promptHash, suggestion.expectedTargetKey, suggestion.expectedTarget, requestId,
+          "direct_review", confidence, suggestion.rationale || null, 1, now, now,
         );
-        appliedFeedback += 1;
-        if (incorrect && enablePromptCorrections && item.promptHash) {
-          this.db.prepare(`
-            INSERT INTO promptCorrections(
-              promptHash,expectedTargetKey,expectedTarget,sourceRequestId,correctionRunId,confidence,rationale,active,createdAt,updatedAt
-            ) VALUES(?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(promptHash) DO UPDATE SET expectedTargetKey=excluded.expectedTargetKey,
-            expectedTarget=excluded.expectedTarget,sourceRequestId=excluded.sourceRequestId,
-            correctionRunId=excluded.correctionRunId,confidence=excluded.confidence,
-            rationale=excluded.rationale,active=1,updatedAt=excluded.updatedAt
-          `).run(
-            item.promptHash, item.expectedTargetKey, item.expectedTarget, item.requestId,
-            runId, item.confidence, item.rationale || null, 1, now, now,
-          );
-          promptCorrections += 1;
-        }
-        this.db.prepare(`UPDATE correctionItems SET applied=1 WHERE runId=? AND requestId=?`).run(runId, item.requestId);
       }
-      this.db.prepare(`UPDATE correctionRuns SET status='applied', appliedAt=? WHERE id=?`).run(now, runId);
     });
-    return { runId, appliedFeedback, promptCorrections, skipped };
+    return {
+      requestId,
+      appliedFeedback: true,
+      promptCorrection: Boolean(enablePromptCorrection && decision.promptHash),
+      decision: this.get(requestId),
+    };
   }
 
   getPromptCorrection(promptHash) {

@@ -20,7 +20,7 @@ async function createStore(t) {
   return store;
 }
 
-function seedDecision(store, { requestId = "request-1", prompt = "Plan a zero downtime rollout", targetKey = "medium", target = "smart-medium" } = {}) {
+function seedDecision(store, { requestId = "request-1", prompt = "Plan a zero downtime rollout", targetKey = "medium", target = "smart-medium", context = true } = {}) {
   const body = { model: "auto", messages: [{ role: "user", content: prompt }] };
   const normalized = normalizeRequest("/v1/chat/completions", body);
   store.decision({
@@ -42,40 +42,17 @@ function seedDecision(store, { requestId = "request-1", prompt = "Plan a zero do
     toolCount: 0,
     estimatedTokens: 20,
     client: "test",
-    prompt,
-    request: requestSnapshot(body),
+    prompt: context ? prompt : null,
+    request: context ? requestSnapshot(body) : null,
     reasons: ["coding"],
     features: { ruleScore: 55 },
   });
   return { body, normalized };
 }
 
-test("previews and applies upstream model decision corrections", async (t) => {
+test("reviews and applies one upstream model decision correction", async (t) => {
   const store = await createStore(t);
   seedDecision(store);
-  store.decision({
-    requestId: "missing-context",
-    timestamp: new Date().toISOString(),
-    sessionHash: "session",
-    promptHash: "missing",
-    requestedModel: "auto",
-    target: "smart-small",
-    targetKey: "small",
-    task: "quick",
-    complexity: "low",
-    score: 10,
-    confidence: 0.9,
-    mode: "active",
-    classifierUsed: false,
-    affinityHeld: false,
-    messageCount: 1,
-    toolCount: 0,
-    estimatedTokens: 5,
-    client: "test",
-    reasons: [],
-    features: { ruleScore: 10 },
-  });
-
   const catalog = { ready: true, models: new Set(["smart-large", "smart-planning"]) };
   let observed;
   const corrector = new DecisionCorrector({
@@ -87,25 +64,39 @@ test("previews and applies upstream model decision corrections", async (t) => {
     fetchImpl: async (url, options) => {
       observed = { url, options, body: JSON.parse(options.body) };
       return new Response(JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({
-          items: [{ requestId: "request-1", verdict: "incorrect", expectedTargetKey: "planning", confidence: 0.91, rationale: "rollout planning" }],
-        }) } }],
+        choices: [{ message: { content: JSON.stringify({ verdict: "incorrect", expectedTargetKey: "planning", confidence: 0.91, rationale: "rollout planning" }) } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
   });
 
-  const preview = await corrector.preview({ limit: 2, judgeModel: "smart-large", minConfidence: 0.7 });
+  const review = await corrector.reviewDecision("request-1", { judgeModel: "smart-large", minConfidence: 0.7 });
   assert.equal(observed.url, "http://upstream.test/v1/chat/completions");
   assert.equal(observed.options.headers.Authorization, "Bearer upstream-key");
   assert.equal(observed.body.model, "smart-large");
-  assert.equal(preview.eligibleCount, 1);
-  assert.equal(preview.items.find((item) => item.requestId === "request-1").suggestion.expectedTargetKey, "planning");
-  assert.equal(preview.items.find((item) => item.requestId === "missing-context").skipReason, "missing_context");
+  assert.equal(observed.body.messages[1].content.includes("request-1"), true);
+  assert.equal(review.suggestion.expectedTargetKey, "planning");
 
-  const applied = corrector.apply(preview.id, { expectedRevision: "rev-1", selectedRequestIds: ["request-1"] });
-  assert.equal(applied.appliedFeedback, 1);
-  assert.equal(applied.promptCorrections, 1);
+  const applied = corrector.applyDecisionReview("request-1", { expectedRevision: "rev-1", suggestion: review.suggestion });
+  assert.equal(applied.appliedFeedback, true);
+  assert.equal(applied.promptCorrection, true);
   assert.equal(store.get("request-1").feedback.expectedTarget, "smart-planning");
+});
+
+test("returns ineligible review without upstream call when context is missing", async (t) => {
+  const store = await createStore(t);
+  seedDecision(store, { context: false });
+  const corrector = new DecisionCorrector({
+    store,
+    catalog: { ready: true, models: new Set(["smart-large"]) },
+    metrics: new Metrics(),
+    getConfig: () => DEFAULT_CONFIG,
+    getRevision: () => "rev-1",
+    fetchImpl: async () => { throw new Error("should not call upstream"); },
+  });
+
+  const review = await corrector.reviewDecision("request-1");
+  assert.equal(review.eligible, false);
+  assert.equal(review.skipReason, "missing_context");
 });
 
 test("retries judge call without response_format when upstream rejects it", async (t) => {
@@ -126,42 +117,28 @@ test("retries judge call without response_format when upstream rejects it", asyn
         return new Response("response_format json_object not supported", { status: 400 });
       }
       return new Response(JSON.stringify({
-        choices: [{ message: { content: "```json\n{\"items\":[{\"requestId\":\"request-1\",\"verdict\":\"correct\",\"confidence\":0.8}]}\n```" } }],
+        choices: [{ message: { content: "```json\n{\"verdict\":\"correct\",\"confidence\":0.8}\n```" } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     },
   });
 
-  const preview = await corrector.preview({ limit: 1, judgeModel: "smart-large" });
+  const review = await corrector.reviewDecision("request-1", { judgeModel: "smart-large" });
   assert.equal(calls.length, 2);
   assert.equal(calls[0].response_format?.type, "json_object");
   assert.equal(calls[1].response_format, undefined);
-  assert.equal(preview.items[0].suggestion.verdict, "correct");
+  assert.equal(review.suggestion.verdict, "correct");
 });
 
 test("router uses accepted prompt corrections for future matching prompts", async (t) => {
   const store = await createStore(t);
   const { body, normalized } = seedDecision(store, { requestId: "source-request" });
-  store.saveCorrectionRun({
-    id: "corr-routing",
-    createdAt: new Date().toISOString(),
-    status: "previewed",
-    judgeModel: "smart-large",
-    filters: {},
-    requestedCount: 1,
-    eligibleCount: 1,
-    promptVersion: "test",
-    configRevision: "rev",
-  }, [{
-    requestId: "source-request",
-    eligible: true,
+  store.applyDecisionReview("source-request", {
     verdict: "incorrect",
     expectedTargetKey: "planning",
     expectedTarget: "smart-planning",
     confidence: 0.95,
     rationale: "planning prompt",
-    applyDefault: true,
-  }]);
-  store.applyCorrectionRun("corr-routing", ["source-request"]);
+  });
   assert.equal(store.getPromptCorrection(normalized.promptHash).expectedTargetKey, "planning");
 
   const config = mergeDeep(DEFAULT_CONFIG, { classifier: { enabled: false }, upstream: { strictModelValidation: false } });

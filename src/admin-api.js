@@ -378,42 +378,32 @@ export function createAdminApi(context) {
         return true;
       }
 
-      if (pathname === "/api/admin/decisions/corrections/preview" && req.method === "POST") {
-        const body = await readJson(req, config.server.maxBodyBytes);
-        if (!corrector) {
-          sendJson(res, 503, { error: "Decision correction is unavailable" });
-          return true;
-        }
-        sendJson(res, 200, await corrector.preview(body));
-        return true;
-      }
-
-      const correctionApplyMatch = pathname.match(/^\/api\/admin\/decisions\/corrections\/([^/]+)\/apply$/);
-      if (correctionApplyMatch && req.method === "POST") {
-        const body = await readJson(req, config.server.maxBodyBytes);
-        if (!corrector) {
-          sendJson(res, 503, { error: "Decision correction is unavailable" });
-          return true;
-        }
-        sendJson(res, 200, corrector.apply(decodeURIComponent(correctionApplyMatch[1]), body));
-        return true;
-      }
-
-      const correctionMatch = pathname.match(/^\/api\/admin\/decisions\/corrections\/([^/]+)$/);
-      if (correctionMatch && req.method === "GET") {
-        if (!corrector) {
-          sendJson(res, 503, { error: "Decision correction is unavailable" });
-          return true;
-        }
-        const run = corrector.get(decodeURIComponent(correctionMatch[1]));
-        sendJson(res, run ? 200 : 404, run || { error: "Correction run not found" });
-        return true;
-      }
-
       const decisionMatch = pathname.match(/^\/api\/admin\/decisions\/([^/]+)$/);
       if (decisionMatch && req.method === "GET") {
         const item = store.get(decodeURIComponent(decisionMatch[1]));
         sendJson(res, item ? 200 : 404, item || { error: "Decision not found" });
+        return true;
+      }
+
+      const reviewMatch = pathname.match(/^\/api\/admin\/decisions\/([^/]+)\/review$/);
+      if (reviewMatch && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (!corrector) {
+          sendJson(res, 503, { error: "Decision correction is unavailable" });
+          return true;
+        }
+        sendJson(res, 200, await corrector.reviewDecision(decodeURIComponent(reviewMatch[1]), body));
+        return true;
+      }
+
+      const reviewApplyMatch = pathname.match(/^\/api\/admin\/decisions\/([^/]+)\/review\/apply$/);
+      if (reviewApplyMatch && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (!corrector) {
+          sendJson(res, 503, { error: "Decision correction is unavailable" });
+          return true;
+        }
+        sendJson(res, 200, corrector.applyDecisionReview(decodeURIComponent(reviewApplyMatch[1]), body));
         return true;
       }
 

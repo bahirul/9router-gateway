@@ -1,6 +1,3 @@
-import crypto from "node:crypto";
-
-const PROMPT_VERSION = "decision-correction-v1";
 const TARGET_KEYS = new Set(["small", "medium", "planning", "large", "vision"]);
 
 function upstreamHeaders(apiKey) {
@@ -46,32 +43,35 @@ function eligibleContext(decision) {
   return null;
 }
 
-function summarizeDecision(decision) {
+function predicted(decision) {
   return {
-    requestId: decision.requestId,
-    requestedModel: decision.requestedModel,
-    predicted: {
-      targetKey: decision.targetKey,
-      target: decision.target,
-      task: decision.task,
-      complexity: decision.complexity,
-      score: decision.score,
-      confidence: decision.confidence,
-      reasons: decision.reasons || [],
-    },
-    request: eligibleContext(decision),
+    targetKey: decision.targetKey,
+    target: decision.target,
+    task: decision.task,
+    complexity: decision.complexity,
+    score: decision.score,
+    confidence: decision.confidence,
+    reasons: decision.reasons || [],
   };
 }
 
-function correctionPrompt(records, targets) {
+function reviewPrompt(decision, targets) {
   return [
     {
       role: "system",
-      content: `You audit smart-router decisions. Return strict JSON only. For each record decide if the predicted target is correct. Valid target keys: ${Object.keys(targets).join(", ")}. Use expectedTargetKey only from those keys. Reply shape: {"items":[{"requestId":"...","verdict":"correct|incorrect|uncertain","expectedTargetKey":"small|medium|planning|large|vision|null","confidence":0.0,"rationale":"short reason"}]}. Prefer uncertain when context is insufficient.`,
+      content: `You audit one smart-router decision. Return strict JSON only. Decide if the predicted target is correct. Valid target keys: ${Object.keys(targets).join(", ")}. Use expectedTargetKey only from those keys. Reply shape: {"verdict":"correct|incorrect|uncertain","expectedTargetKey":"small|medium|planning|large|vision|null","confidence":0.0,"rationale":"short reason"}. Prefer uncertain when context is insufficient.`,
     },
     {
       role: "user",
-      content: `${JSON.stringify({ targets, records }, null, 2)}\n\nReturn only the JSON object. Do not include markdown, prose, or code fences.`,
+      content: `${JSON.stringify({
+        targets,
+        record: {
+          requestId: decision.requestId,
+          requestedModel: decision.requestedModel,
+          predicted: predicted(decision),
+          request: eligibleContext(decision),
+        },
+      }, null, 2)}\n\nReturn only the JSON object. Do not include markdown, prose, or code fences.`,
     },
   ];
 }
@@ -105,45 +105,12 @@ function normalizeSuggestion(raw, decision, targets, minConfidence) {
   const incorrect = verdict === "incorrect" && expectedTargetKey;
   const confidence = Math.max(0, Math.min(1, Number(raw?.confidence) || 0));
   return {
-    requestId: decision.requestId,
-    eligible: true,
     verdict: incorrect ? "incorrect" : verdict === "correct" ? "correct" : "uncertain",
     expectedTargetKey: incorrect ? expectedTargetKey : null,
     expectedTarget: incorrect ? targets[expectedTargetKey] : null,
     confidence,
     rationale: typeof raw?.rationale === "string" ? raw.rationale.slice(0, 500) : "",
     applyDefault: incorrect && confidence >= minConfidence,
-    predicted: {
-      targetKey: decision.targetKey,
-      target: decision.target,
-      task: decision.task,
-      complexity: decision.complexity,
-      score: decision.score,
-    },
-  };
-}
-
-function publicItem(item) {
-  return {
-    requestId: item.requestId,
-    eligible: item.eligible,
-    skipReason: item.skipReason || null,
-    predicted: item.predicted || {
-      targetKey: item.targetKey,
-      target: item.target,
-      task: item.task,
-      complexity: item.complexity,
-      score: item.score,
-    },
-    suggestion: item.eligible ? {
-      verdict: item.verdict,
-      expectedTargetKey: item.expectedTargetKey,
-      expectedTarget: item.expectedTarget,
-      confidence: item.confidence,
-      rationale: item.rationale,
-      applyDefault: item.applyDefault,
-      applied: item.applied || false,
-    } : null,
   };
 }
 
@@ -177,101 +144,77 @@ export class DecisionCorrector {
     return model;
   }
 
-  async preview({ ids = [], filters = {}, limit = 25, judgeModel, minConfidence = 0.7 } = {}) {
+  async reviewDecision(requestId, { judgeModel, minConfidence = 0.7 } = {}) {
+    const decision = this.store.get(requestId);
+    if (!decision) {
+      const error = new Error("Decision not found");
+      error.status = 404;
+      throw error;
+    }
+    if (!eligibleContext(decision)) {
+      return {
+        requestId,
+        eligible: false,
+        skipReason: "missing_context",
+        predicted: predicted(decision),
+      };
+    }
+
     const config = this.getConfig();
-    const revision = this.getRevision();
     const model = this.validateJudgeModel(judgeModel);
-    const selectedIds = Array.isArray(ids) ? ids.filter(Boolean).slice(0, 25) : [];
-    const records = this.store.listForCorrection({ ids: selectedIds, filters, limit });
-    const eligible = [];
-    const items = [];
-    for (const decision of records) {
-      if (!eligibleContext(decision)) {
-        items.push({
-          requestId: decision.requestId,
-          eligible: false,
-          skipReason: "missing_context",
-          predicted: {
-            targetKey: decision.targetKey,
-            target: decision.target,
-            task: decision.task,
-            complexity: decision.complexity,
-            score: decision.score,
-          },
-        });
-      } else {
-        eligible.push(decision);
-      }
+    const response = await fetchJudge(
+      this.fetchImpl,
+      `${config.upstream.baseUrl.replace(/\/$/, "")}/v1/chat/completions`,
+      upstreamHeaders(config.upstream.apiKey),
+      {
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: reviewPrompt(decision, config.routing.targets),
+      },
+      config.upstream.requestTimeoutMs,
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      const error = new Error(`judge model returned ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+      error.status = 502;
+      throw error;
     }
 
-    if (eligible.length) {
-      const response = await fetchJudge(
-        this.fetchImpl,
-        `${config.upstream.baseUrl.replace(/\/$/, "")}/v1/chat/completions`,
-        upstreamHeaders(config.upstream.apiKey),
-        {
-          model,
-          temperature: 0,
-          response_format: { type: "json_object" },
-          messages: correctionPrompt(eligible.map(summarizeDecision), config.routing.targets),
-        },
-        config.upstream.requestTimeoutMs,
-      );
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        const error = new Error(`judge model returned ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-        error.status = 502;
-        throw error;
-      }
-      const payload = parseJsonObject(textFromChatCompletion(await response.json()));
-      const byId = new Map((payload.items || []).map((item) => [item.requestId, item]));
-      for (const decision of eligible) {
-        items.push(normalizeSuggestion(byId.get(decision.requestId), decision, config.routing.targets, minConfidence));
-      }
-    }
-
-    const run = {
-      id: `corr_${crypto.randomBytes(12).toString("base64url")}`,
-      createdAt: new Date().toISOString(),
-      status: "previewed",
+    const suggestion = normalizeSuggestion(
+      parseJsonObject(textFromChatCompletion(await response.json())),
+      decision,
+      config.routing.targets,
+      minConfidence,
+    );
+    this.metrics.increment("smart_router_correction_items_total", { verdict: suggestion.verdict });
+    return {
+      requestId,
+      eligible: true,
       judgeModel: model,
-      filters: selectedIds.length ? { ids: selectedIds } : filters,
-      requestedCount: records.length,
-      eligibleCount: eligible.length,
-      promptVersion: PROMPT_VERSION,
-      configRevision: revision,
+      configRevision: this.getRevision(),
+      predicted: predicted(decision),
+      suggestion,
     };
-    this.store.saveCorrectionRun(run, items);
-    this.metrics.increment("smart_router_correction_runs_total", { result: "previewed" });
-    for (const item of items) {
-      this.metrics.increment("smart_router_correction_items_total", { verdict: item.verdict || item.skipReason || "skipped" });
-    }
-    return { ...run, items: items.map(publicItem) };
   }
 
-  apply(runId, { expectedRevision, selectedRequestIds = [], minConfidence = 0.7, enablePromptCorrections = true, writePositiveFeedback = false } = {}) {
+  applyDecisionReview(requestId, { expectedRevision, suggestion, minConfidence = 0.7, enablePromptCorrection = true } = {}) {
     if (expectedRevision !== this.getRevision()) {
-      const error = new Error("Configuration changed; rerun correction preview before applying");
+      const error = new Error("Configuration changed; rerun review before applying");
       error.status = 409;
       throw error;
     }
-    const result = this.store.applyCorrectionRun(runId, selectedRequestIds, {
+    const result = this.store.applyDecisionReview(requestId, suggestion, {
       minConfidence,
-      enablePromptCorrections,
-      writePositiveFeedback,
+      enablePromptCorrection,
     });
     if (!result) {
-      const error = new Error("Correction run not found");
+      const error = new Error("Decision not found");
       error.status = 404;
       throw error;
     }
     this.metrics.increment("smart_router_correction_runs_total", { result: "applied" });
-    this.metrics.increment("smart_router_prompt_corrections_total", { result: result.promptCorrections ? "created" : "none" });
+    this.metrics.increment("smart_router_prompt_corrections_total", { result: result.promptCorrection ? "created" : "none" });
     return result;
-  }
-
-  get(runId) {
-    const run = this.store.getCorrectionRun(runId);
-    return run ? { ...run, items: run.items.map(publicItem) } : null;
   }
 }

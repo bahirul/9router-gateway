@@ -72,13 +72,10 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
       res.setHeader("Content-Type", "application/json");
       return res.end(JSON.stringify({
         choices: [{ message: { content: JSON.stringify({
-          items: reviewInput.records.map((record) => ({
-            requestId: record.requestId,
-            verdict: "incorrect",
-            expectedTargetKey: "planning",
-            confidence: 0.92,
-            rationale: "integration correction",
-          })),
+          verdict: "incorrect",
+          expectedTargetKey: "planning",
+          confidence: 0.92,
+          rationale: `integration correction for ${reviewInput.record.requestId}`,
         }) } }],
       }));
     }
@@ -334,7 +331,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   assert.equal(decisionDetail.request.body.model, "auto");
   assert.match(decisionDetail.prompt, /Translate hello/);
 
-  const correctionPreview = await fetch(`${baseUrl}/api/admin/decisions/corrections/preview`, {
+  const oldBatchPreview = await fetch(`${baseUrl}/api/admin/decisions/corrections/preview`, {
     method: "POST",
     headers: {
       Cookie: cookie,
@@ -342,21 +339,32 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
       "x-csrf-token": session.csrfToken,
     },
     body: JSON.stringify({ ids: [decisionWithContext.requestId], judgeModel: "smart-large" }),
-  }).then((response) => response.json());
-  assert.equal(correctionPreview.eligibleCount, 1);
-  assert.equal(correctionPreview.items[0].suggestion.expectedTargetKey, "planning");
+  });
+  assert.equal(oldBatchPreview.status, 404);
 
-  const correctionApply = await fetch(`${baseUrl}/api/admin/decisions/corrections/${encodeURIComponent(correctionPreview.id)}/apply`, {
+  const decisionReview = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(decisionWithContext.requestId)}/review`, {
     method: "POST",
     headers: {
       Cookie: cookie,
       "Content-Type": "application/json",
       "x-csrf-token": session.csrfToken,
     },
-    body: JSON.stringify({ expectedRevision: correctionPreview.configRevision, selectedRequestIds: [decisionWithContext.requestId] }),
+    body: JSON.stringify({ judgeModel: "smart-large" }),
   }).then((response) => response.json());
-  assert.equal(correctionApply.appliedFeedback, 1);
-  assert.equal(correctionApply.promptCorrections, 1);
+  assert.equal(decisionReview.eligible, true);
+  assert.equal(decisionReview.suggestion.expectedTargetKey, "planning");
+
+  const correctionApply = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(decisionWithContext.requestId)}/review/apply`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ expectedRevision: decisionReview.configRevision, suggestion: decisionReview.suggestion }),
+  }).then((response) => response.json());
+  assert.equal(correctionApply.appliedFeedback, true);
+  assert.equal(correctionApply.promptCorrection, true);
 
   const corrected = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",

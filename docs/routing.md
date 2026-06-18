@@ -88,9 +88,9 @@ Behavior:
 
 Forced models are selected from the upstream catalog in Dashboard → API Keys. Custom values are allowed in the UI, but API validation rejects unknown models when the catalog is ready.
 
-## Batch Decision Correction
+## Decision Correction
 
-Dashboard → Decisions can ask an upstream 9Router model to review recent decision records in batches. The review is preview-only until an operator applies selected corrections.
+Dashboard → Decisions can ask an upstream 9Router model to review one decision record from the decision detail drawer. The review is preview-only until an operator applies the suggested correction.
 
 Only records with stored prompt/request context are eligible. Enable Dashboard → Routing → Raw prompt logging before collecting decisions you want to review; stored request context is sanitized for sensitive fields before persistence.
 
