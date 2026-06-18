@@ -50,6 +50,7 @@ The gateway also proxies `/v1/responses`, `/v1/models`, and other 9Router-compat
 Minimal `~/.codex/config.toml` provider:
 
 ```toml
+# 9Router Configuration for Codex CLI
 model = "auto"
 model_provider = "smartrouter"
 
@@ -57,13 +58,15 @@ model_provider = "smartrouter"
 name = "smartrouter"
 base_url = "http://127.0.0.1:20129/v1"
 wire_api = "responses"
-env_key = "SMART_ROUTER_API_KEY"
 ```
 
-Then set the client-side key when API-key enforcement is enabled:
+Then provide the client-side key via `~/.codex/auth.json` when API-key enforcement is enabled:
 
-```bash
-export SMART_ROUTER_API_KEY='sk-...'
+```json
+{
+  "auth_mode": "apikey",
+  "OPENAI_API_KEY": "sk-..."
+}
 ```
 
 For remote upstream access, also set the gateway-side upstream key before starting `9router-gateway`:

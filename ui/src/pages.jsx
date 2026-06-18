@@ -1299,9 +1299,9 @@ export function SystemPage() {
   const endpointExamples = {
     openai: {
       title: "Codex CLI config.toml",
-      description: "Minimal ~/.codex/config.toml provider for this gateway.",
-      language: "toml",
-      body: `# ~/.codex/config.toml\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\nenv_key = "SMART_ROUTER_API_KEY"`,
+      description: "Minimal ~/.codex/config.toml + ~/.codex/auth.json for this gateway.",
+      language: "toml + json",
+      body: `# ~/.codex/config.toml\n# 9Router Configuration for Codex CLI\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\n\n// ~/.codex/auth.json\n${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "<your API key>" }, null, 2)}`,
     },
     anthropic: {
       title: "Claude Code settings.json",
