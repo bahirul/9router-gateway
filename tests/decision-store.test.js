@@ -100,9 +100,15 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(created.name, "CLI");
   assert.match(created.secret, /^sk-/);
   assert.match(created.displayPrefix, /^sk-/);
+  assert.equal(created.quotaPeriod, null);
+  assert.equal(created.quotaLimit, null);
+  assert.equal(created.quotaUsed, 0);
   assert.equal(store.listApiKeys()[0].secret, created.secret);
   assert.equal(store.verifyApiKey(created.secret), true);
   assert.equal(store.verifyApiKey("wrong"), false);
+  store.db.prepare(`UPDATE apiKeys SET secretLookup=NULL WHERE id=?`).run(created.id);
+  assert.equal(store.verifyApiKey(created.secret), true);
+  assert.equal(typeof store.db.prepare(`SELECT secretLookup FROM apiKeys WHERE id=?`).get(created.id).secretLookup, "string");
 
   const disabled = store.setApiKeyActive(created.id, false);
   assert.equal(disabled.status, "inactive");
@@ -119,6 +125,38 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(store.deleteApiKey(created.id), true);
   assert.equal(store.getApiKey(created.id), null);
   assert.equal(store.verifyApiKey(created.secret), false);
+});
+
+test("enforces api key request quotas", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-key-quotas-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  const daily = store.createApiKey({ name: "Daily", quotaPeriod: "day", quotaLimit: 2 });
+  assert.equal(store.authorizeApiKey(daily.secret, { consume: true }).ok, true);
+  assert.equal(store.authorizeApiKey(daily.secret, { consume: true }).ok, true);
+  const exhausted = store.authorizeApiKey(daily.secret, { consume: true });
+  assert.equal(exhausted.ok, false);
+  assert.equal(exhausted.reason, "quota_exceeded");
+  assert.equal(store.getApiKey(daily.id).status, "limited");
+  assert.equal(store.getApiKey(daily.id).quotaRemaining, 0);
+
+  const monthly = store.createApiKey({ name: "Monthly", quotaPeriod: "month", quotaLimit: 1 });
+  assert.equal(store.authorizeApiKey(monthly.secret, { consume: true }).ok, true);
+  assert.equal(store.getApiKey(monthly.id).quotaPeriodKey.length, 7);
+
+  const unlimited = store.createApiKey({ name: "Unlimited" });
+  assert.equal(store.authorizeApiKey(unlimited.secret, { consume: true }).ok, true);
+  assert.equal(store.authorizeApiKey(unlimited.secret, { consume: true }).ok, true);
+  assert.equal(store.getApiKey(unlimited.id).quotaUsed, 0);
+
+  store.setApiKeyActive(daily.id, false);
+  assert.equal(store.authorizeApiKey(daily.secret, { consume: true }).reason, "inactive");
+
+  assert.equal(store.deleteApiKey(monthly.id), true);
+  const usageRows = store.db.prepare(`SELECT * FROM apiKeyUsage WHERE apiKeyId=?`).all(monthly.id);
+  assert.equal(usageRows.length, 0);
 });
 
 test("migrates existing stores to add request context", async (t) => {
@@ -147,6 +185,7 @@ test("migrates existing stores to add request context", async (t) => {
   assert.ok(apiKeyColumns.includes("displayPrefix"));
   assert.ok(apiKeyColumns.includes("secret"));
   assert.ok(apiKeyColumns.includes("active"));
+  assert.ok(apiKeyColumns.includes("secretLookup"));
 });
 
 test("request snapshots redact sensitive fields and cap large bodies", () => {

@@ -136,7 +136,7 @@ Dashboard-editable settings such as classifier enablement, classifier confidence
 
 API-key enforcement is optional. Enable **Require API key** on the API Keys page.
 
-The dashboard can create multiple named keys with an expiration of one day, seven days, 30 days, 90 days, or never. Each key can be enabled, disabled, shown, copied, or permanently deleted.
+The dashboard can create multiple named keys with an expiration of one day, seven days, 30 days, 90 days, or never. Each key can be enabled, disabled, shown, copied, quota-limited, or permanently deleted. Optional request quotas can be unlimited, daily, or monthly; exhausted keys are rejected until the next UTC calendar period.
 
 Send a key with either header:
 
@@ -148,7 +148,7 @@ Authorization: Bearer sk-...
 x-api-key: sk-...
 ```
 
-When enforcement is enabled, requests under `/v1/` are rejected without a valid active key, except the operator routes under `/v1/router/`.
+When enforcement is enabled, requests under `/v1/` are rejected without a valid active key, except the operator routes under `/v1/router/`. Keys that exceed their daily or monthly request quota receive HTTP `429`.
 
 Keys are hashed for request verification. Newly created keys are also stored in SQLite so the authenticated dashboard can show and copy them after a restart. Keys created by older versions may remain valid but display as unavailable because their original value cannot be recovered from the hash.
 

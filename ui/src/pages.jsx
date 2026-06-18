@@ -613,6 +613,19 @@ function formatApiKeyDate(value) {
   });
 }
 
+function apiKeyQuotaText(key) {
+  if (!key.quotaPeriod || !key.quotaLimit) return "Unlimited requests";
+  const label = key.quotaPeriod === "day" ? "today" : "this month";
+  return `${key.quotaUsed || 0} / ${key.quotaLimit} ${label}`;
+}
+
+function apiKeyQuotaDraft(key) {
+  return {
+    quotaPeriod: key.quotaPeriod || "none",
+    quotaLimit: key.quotaLimit || 100,
+  };
+}
+
 export function ApiKeysPage() {
   const [config, setConfig] = useState(null);
   const [apiKeys, setApiKeys] = useState([]);
@@ -625,11 +638,15 @@ export function ApiKeysPage() {
   const [createSaving, setCreateSaving] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [keyExpiry, setKeyExpiry] = useState("never");
+  const [keyQuotaPeriod, setKeyQuotaPeriod] = useState("none");
+  const [keyQuotaLimit, setKeyQuotaLimit] = useState(100);
   const [createdKey, setCreatedKey] = useState(null);
   const [revealedKeys, setRevealedKeys] = useState({});
+  const [quotaDrafts, setQuotaDrafts] = useState({});
 
   function applyKeys(items) {
     setApiKeys(items);
+    setQuotaDrafts(Object.fromEntries(items.map((item) => [item.id, apiKeyQuotaDraft(item)])));
   }
 
   async function load() {
@@ -686,12 +703,19 @@ export function ApiKeysPage() {
     try {
       const result = await api("/api/admin/api-keys", {
         method: "POST",
-        body: JSON.stringify({ name: keyName.trim(), expiresAt: expiryFromChoice(keyExpiry) }),
+        body: JSON.stringify({
+          name: keyName.trim(),
+          expiresAt: expiryFromChoice(keyExpiry),
+          quotaPeriod: keyQuotaPeriod === "none" ? null : keyQuotaPeriod,
+          quotaLimit: keyQuotaPeriod === "none" ? null : keyQuotaLimit,
+        }),
       });
       setCreateOpen(false);
       setCreatedKey(result);
       setKeyName("");
       setKeyExpiry("never");
+      setKeyQuotaPeriod("none");
+      setKeyQuotaLimit(100);
       setMessage(`API key created: ${result.name}`);
       const nextKeys = await api("/api/admin/api-keys");
       applyKeys(nextKeys.items || []);
@@ -718,6 +742,30 @@ export function ApiKeysPage() {
       });
       setApiKeys((items) => items.map((item) => item.id === key.id ? result : item));
       setMessage(`${key.name} ${active ? "enabled" : "disabled"}`);
+    } catch (failure) {
+      setApiKeys(previous);
+      setError(failure.message);
+    } finally {
+      setKeySaving(null);
+    }
+  }
+
+  async function updateKeyQuota(key) {
+    const draft = quotaDrafts[key.id] || apiKeyQuotaDraft(key);
+    const previous = apiKeys;
+    setKeySaving(key.id);
+    setError("");
+    try {
+      const result = await api(`/api/admin/api-keys/${encodeURIComponent(key.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          quotaPeriod: draft.quotaPeriod === "none" ? null : draft.quotaPeriod,
+          quotaLimit: draft.quotaPeriod === "none" ? null : Number(draft.quotaLimit),
+        }),
+      });
+      setApiKeys((items) => items.map((item) => item.id === key.id ? result : item));
+      setQuotaDrafts((current) => ({ ...current, [key.id]: apiKeyQuotaDraft(result) }));
+      setMessage(`${key.name} quota updated`);
     } catch (failure) {
       setApiKeys(previous);
       setError(failure.message);
@@ -796,6 +844,18 @@ export function ApiKeysPage() {
               {API_KEY_EXPIRY_CHOICES.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
             </Select>
           </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Request quota">
+              <Select value={keyQuotaPeriod} onChange={(event) => setKeyQuotaPeriod(event.target.value)}>
+                <option value="none">Unlimited</option>
+                <option value="day">Daily limit</option>
+                <option value="month">Monthly limit</option>
+              </Select>
+            </Field>
+            {keyQuotaPeriod !== "none" && (
+              <NumberField label="Limit" value={keyQuotaLimit} onChange={setKeyQuotaLimit} />
+            )}
+          </div>
         </div>
       </Dialog>
       <Dialog
@@ -833,6 +893,33 @@ export function ApiKeysPage() {
                   <span>Created {formatApiKeyDate(key.createdAt)}</span>
                   {key.expiresAt && <span>{key.status === "expired" ? "Expired" : "Expires"} {formatApiKeyDate(key.expiresAt)}</span>}
                   {key.status === "inactive" && <span className="text-warning">Disabled</span>}
+                  {key.status === "limited" && <span className="text-warning">Quota reached</span>}
+                  <span>{apiKeyQuotaText(key)}</span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
+                  <Select
+                    value={(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaPeriod}
+                    onChange={(event) => setQuotaDrafts((current) => ({
+                      ...current,
+                      [key.id]: { ...(current[key.id] || apiKeyQuotaDraft(key)), quotaPeriod: event.target.value },
+                    }))}
+                  >
+                    <option value="none">Unlimited</option>
+                    <option value="day">Daily limit</option>
+                    <option value="month">Monthly limit</option>
+                  </Select>
+                  {(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaPeriod !== "none" && (
+                    <Input
+                      type="number"
+                      min="1"
+                      value={(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaLimit}
+                      onChange={(event) => setQuotaDrafts((current) => ({
+                        ...current,
+                        [key.id]: { ...(current[key.id] || apiKeyQuotaDraft(key)), quotaLimit: Number(event.target.value) },
+                      }))}
+                    />
+                  )}
+                  <Button variant="secondary" disabled={keySaving === key.id} onClick={() => updateKeyQuota(key)}>Save quota</Button>
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-3">

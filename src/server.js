@@ -94,11 +94,22 @@ function adminAuthorized(req, store) {
   return store.verifyAdminPassword(bearer) || store.verifyAdminPassword(req.headers["x-admin-key"] || "");
 }
 
-function apiKeyAuthorized(req, store) {
-  if (!store?.verifyApiKey) return false;
+function apiKeyAuthorized(req, store, { consume = false } = {}) {
+  if (!store?.authorizeApiKey) return { ok: false, reason: "unavailable" };
   const authorization = req.headers.authorization || "";
   const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-  return store.verifyApiKey(bearer) || store.verifyApiKey(req.headers["x-api-key"] || "");
+  return store.authorizeApiKey(bearer || req.headers["x-api-key"] || "", { consume });
+}
+
+function rejectApiKeyAuthorization(res, authorization) {
+  if (authorization.reason === "quota_exceeded") {
+    return jsonResponse(res, 429, { error: "api key quota exceeded" });
+  }
+  return jsonResponse(res, 401, { error: "api key authorization required" });
+}
+
+function apiKeyNeedsQuotaConsume(authorization) {
+  return Boolean(authorization?.key?.quotaPeriod && authorization.key.quotaLimit != null);
 }
 
 function routingHeaders(decisionResult) {
@@ -436,8 +447,13 @@ export function createSmartRouter({
       }
 
       const apiKeyProtected = pathname.startsWith("/v1/") && !pathname.startsWith("/v1/router/");
-      if (activeConfig.security?.apiKeyAuthEnabled && apiKeyProtected && !apiKeyAuthorized(req, decisionStore)) {
-        return jsonResponse(res, 401, { error: "api key authorization required" });
+      const apiKeyRequired = activeConfig.security?.apiKeyAuthEnabled && apiKeyProtected;
+      let apiKeyAuthorization = null;
+      if (apiKeyRequired) {
+        apiKeyAuthorization = apiKeyAuthorized(req, decisionStore);
+        if (!apiKeyAuthorization.ok) {
+          return rejectApiKeyAuthorization(res, apiKeyAuthorization);
+        }
       }
 
       if (req.method === "POST" && pathname === "/v1/router/explain") {
@@ -487,6 +503,10 @@ export function createSmartRouter({
       const bodyBuffer = await readBody(req, activeConfig.server.maxBodyBytes);
 
       if (req.method === "GET" && pathname === "/v1/models") {
+        if (apiKeyRequired && apiKeyNeedsQuotaConsume(apiKeyAuthorization)) {
+          const authorization = apiKeyAuthorized(req, decisionStore, { consume: true });
+          if (!authorization.ok) return rejectApiKeyAuthorization(res, authorization);
+        }
         const upstream = await fetchImpl(upstreamUrl(req.url, activeConfig.upstream.baseUrl), {
           headers: upstreamHeaders(req),
           signal: AbortSignal.timeout(Math.min(activeConfig.upstream.requestTimeoutMs, 10000)),
@@ -526,6 +546,11 @@ export function createSmartRouter({
           body.model = routingResult.decision.dispatchTarget;
           outgoingBody = Buffer.from(JSON.stringify(body));
         }
+      }
+
+      if (apiKeyRequired && apiKeyNeedsQuotaConsume(apiKeyAuthorization)) {
+        const authorization = apiKeyAuthorized(req, decisionStore, { consume: true });
+        if (!authorization.ok) return rejectApiKeyAuthorization(res, authorization);
       }
 
       return proxyFetch({

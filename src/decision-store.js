@@ -64,12 +64,32 @@ function verifySecret(secret, stored) {
   }
 }
 
+function apiKeyLookup(secret) {
+  return crypto.createHash("sha256").update(String(secret)).digest("hex");
+}
+
 function generateApiKeySecret() {
   return `sk-${crypto.randomBytes(32).toString("base64url")}`;
 }
 
 function generateApiKeyId() {
   return `key_${crypto.randomBytes(12).toString("base64url")}`;
+}
+
+function quotaPeriodKey(period, date = new Date()) {
+  if (period === "day") return date.toISOString().slice(0, 10);
+  if (period === "month") return date.toISOString().slice(0, 7);
+  return null;
+}
+
+function normalizeQuota({ quotaPeriod = null, quotaLimit = null } = {}) {
+  const period = quotaPeriod === undefined ? null : quotaPeriod;
+  const limit = quotaLimit === undefined ? null : quotaLimit;
+  if (period === null || period === "") return { quotaPeriod: null, quotaLimit: null };
+  if (period !== "day" && period !== "month") throw new Error("quotaPeriod must be day, month, or null");
+  const parsedLimit = Number(limit);
+  if (!Number.isSafeInteger(parsedLimit) || parsedLimit <= 0) throw new Error("quotaLimit must be a positive integer");
+  return { quotaPeriod: period, quotaLimit: parsedLimit };
 }
 
 function percentile(values, percent) {
@@ -140,13 +160,24 @@ export class DecisionStore {
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           secretHash TEXT NOT NULL,
+          secretLookup TEXT,
           secret TEXT,
           displayPrefix TEXT,
           expiresAt TEXT,
           active INTEGER NOT NULL DEFAULT 1,
           revokedAt TEXT,
+          quotaPeriod TEXT,
+          quotaLimit INTEGER,
           createdAt TEXT NOT NULL,
           updatedAt TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS apiKeyUsage (
+          apiKeyId TEXT NOT NULL,
+          periodKey TEXT NOT NULL,
+          count INTEGER NOT NULL DEFAULT 0,
+          updatedAt TEXT NOT NULL,
+          PRIMARY KEY(apiKeyId, periodKey),
+          FOREIGN KEY(apiKeyId) REFERENCES apiKeys(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON decisions(timestamp DESC);
@@ -155,6 +186,7 @@ export class DecisionStore {
         CREATE INDEX IF NOT EXISTS idx_decisions_complexity ON decisions(complexity);
         CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status);
         CREATE INDEX IF NOT EXISTS idx_decisions_mode ON decisions(mode);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_secret_lookup ON apiKeys(secretLookup) WHERE secretLookup IS NOT NULL;
       `);
       this.migrate();
       this.ensureAdminPassword();
@@ -182,12 +214,35 @@ export class DecisionStore {
     if (apiKeyColumns.size && !apiKeyColumns.has("secret")) {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN secret TEXT`);
     }
+    if (apiKeyColumns.size && !apiKeyColumns.has("secretLookup")) {
+      this.db.exec(`ALTER TABLE apiKeys ADD COLUMN secretLookup TEXT`);
+    }
     if (apiKeyColumns.size && !apiKeyColumns.has("active")) {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN active INTEGER NOT NULL DEFAULT 1`);
     }
     if (apiKeyColumns.size && !apiKeyColumns.has("revokedAt")) {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN revokedAt TEXT`);
     }
+    if (apiKeyColumns.size && !apiKeyColumns.has("quotaPeriod")) {
+      this.db.exec(`ALTER TABLE apiKeys ADD COLUMN quotaPeriod TEXT`);
+    }
+    if (apiKeyColumns.size && !apiKeyColumns.has("quotaLimit")) {
+      this.db.exec(`ALTER TABLE apiKeys ADD COLUMN quotaLimit INTEGER`);
+    }
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_secret_lookup ON apiKeys(secretLookup) WHERE secretLookup IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS apiKeyUsage (
+        apiKeyId TEXT NOT NULL,
+        periodKey TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        updatedAt TEXT NOT NULL,
+        PRIMARY KEY(apiKeyId, periodKey),
+        FOREIGN KEY(apiKeyId) REFERENCES apiKeys(id) ON DELETE CASCADE
+      );
+    `);
+    const lookupRows = this.db.prepare(`SELECT id,secret FROM apiKeys WHERE secretLookup IS NULL AND secret IS NOT NULL`).all();
+    const updateLookup = this.db.prepare(`UPDATE apiKeys SET secretLookup=? WHERE id=?`);
+    for (const row of lookupRows) updateLookup.run(apiKeyLookup(row.secret), row.id);
     this.db.exec(`UPDATE apiKeys SET active=0 WHERE revokedAt IS NOT NULL`);
   }
 
@@ -226,29 +281,25 @@ export class DecisionStore {
 
   listApiKeys() {
     if (!this.ready) return [];
-    const now = new Date().toISOString();
+    const now = new Date();
     return this.db.prepare(`
-      SELECT id,name,secret,displayPrefix,expiresAt,active,createdAt,updatedAt
+      SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt
       FROM apiKeys
       ORDER BY createdAt DESC
-    `).all().map((row) => ({
-      ...row,
-      displayPrefix: row.displayPrefix || `${row.id.slice(0, 10)}...`,
-      active: Boolean(row.active),
-      status: row.expiresAt && row.expiresAt <= now ? "expired" : row.active ? "active" : "inactive",
-    }));
+    `).all().map((row) => this.apiKeyRecord(row, now));
   }
 
-  createApiKey({ name, expiresAt = null }) {
+  createApiKey({ name, expiresAt = null, quotaPeriod = null, quotaLimit = null }) {
     const now = new Date().toISOString();
     const id = generateApiKeyId();
     const secret = generateApiKeySecret();
     const displayPrefix = `${secret.slice(0, 10)}...`;
+    const quota = normalizeQuota({ quotaPeriod, quotaLimit });
     this.execute(() => this.db.prepare(`
-      INSERT INTO apiKeys(id,name,secretHash,secret,displayPrefix,expiresAt,active,revokedAt,createdAt,updatedAt)
-      VALUES(?,?,?,?,?,?,?,?,?,?)
-    `).run(id, name, encodeApiKeySecret(secret), secret, displayPrefix, expiresAt, 1, null, now, now));
-    return { id, name, displayPrefix, expiresAt, active: true, createdAt: now, updatedAt: now, secret };
+      INSERT INTO apiKeys(id,name,secretHash,secretLookup,secret,displayPrefix,expiresAt,active,revokedAt,quotaPeriod,quotaLimit,createdAt,updatedAt)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(id, name, encodeApiKeySecret(secret), apiKeyLookup(secret), secret, displayPrefix, expiresAt, 1, null, quota.quotaPeriod, quota.quotaLimit, now, now));
+    return this.apiKeyRecord({ id, name, displayPrefix, expiresAt, active: 1, ...quota, createdAt: now, updatedAt: now, secret }, new Date(now));
   }
 
   setApiKeyActive(id, active) {
@@ -266,26 +317,96 @@ export class DecisionStore {
 
   getApiKey(id) {
     if (!this.ready) return null;
-    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
+    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
     if (!row) return null;
+    return this.apiKeyRecord(row);
+  }
+
+  setApiKeyQuota(id, quotaPeriod, quotaLimit) {
     const now = new Date().toISOString();
+    const quota = normalizeQuota({ quotaPeriod, quotaLimit });
+    this.execute(() => this.db.prepare(`
+      UPDATE apiKeys SET quotaPeriod=?, quotaLimit=?, updatedAt=? WHERE id=?
+    `).run(quota.quotaPeriod, quota.quotaLimit, now, id));
+    return this.getApiKey(id);
+  }
+
+  apiKeyRecord(row, date = new Date()) {
+    const periodKey = quotaPeriodKey(row.quotaPeriod, date);
+    const quotaUsed = periodKey
+      ? Number(this.db.prepare(`SELECT count FROM apiKeyUsage WHERE apiKeyId=? AND periodKey=?`).get(row.id, periodKey)?.count || 0)
+      : 0;
+    const quotaLimit = row.quotaLimit == null ? null : Number(row.quotaLimit);
+    const limited = quotaLimit != null && quotaUsed >= quotaLimit;
+    const expired = row.expiresAt && row.expiresAt <= date.toISOString();
     return {
       ...row,
       displayPrefix: row.displayPrefix || `${row.id.slice(0, 10)}...`,
       active: Boolean(row.active),
-      status: row.expiresAt && row.expiresAt <= now ? "expired" : row.active ? "active" : "inactive",
+      quotaPeriod: row.quotaPeriod || null,
+      quotaLimit,
+      quotaUsed,
+      quotaRemaining: quotaLimit == null ? null : Math.max(0, quotaLimit - quotaUsed),
+      quotaPeriodKey: periodKey,
+      status: expired ? "expired" : row.active ? (limited ? "limited" : "active") : "inactive",
     };
   }
 
   verifyApiKey(candidate) {
-    if (!this.ready || !candidate) return false;
-    const now = new Date().toISOString();
-    const rows = this.db.prepare(`
-      SELECT secretHash, expiresAt
+    return this.authorizeApiKey(candidate).ok;
+  }
+
+  authorizeApiKey(candidate, { consume = false, now = new Date() } = {}) {
+    if (!this.ready || !candidate) return { ok: false, reason: "missing" };
+    const selectColumns = `id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt`;
+    const lookup = apiKeyLookup(candidate);
+    let row = this.db.prepare(`
+      SELECT ${selectColumns}
       FROM apiKeys
-      WHERE active=1
+      WHERE secretLookup=?
+    `).get(lookup);
+    if (row && !verifySecret(candidate, row.secretHash)) return { ok: false, reason: "invalid" };
+    if (!row) {
+      const rows = this.db.prepare(`
+      SELECT id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt
+      FROM apiKeys
+      WHERE secretLookup IS NULL
     `).all();
-    return rows.some((row) => (!row.expiresAt || row.expiresAt > now) && verifySecret(candidate, row.secretHash));
+      row = rows.find((item) => verifySecret(candidate, item.secretHash));
+      if (row) this.execute(() => this.db.prepare(`UPDATE apiKeys SET secretLookup=? WHERE id=?`).run(lookup, row.id));
+    }
+    if (!row) return { ok: false, reason: "invalid" };
+    if (!row.active) return { ok: false, reason: "inactive", key: this.apiKeyRecord(row, now) };
+    if (row.expiresAt && row.expiresAt <= now.toISOString()) return { ok: false, reason: "expired", key: this.apiKeyRecord(row, now) };
+    const periodKey = quotaPeriodKey(row.quotaPeriod, now);
+    if (!periodKey || row.quotaLimit == null) return { ok: true, key: this.apiKeyRecord(row, now) };
+
+    let used = 0;
+    try {
+      if (consume) this.db.exec(`BEGIN IMMEDIATE`);
+      const current = this.db.prepare(`SELECT count FROM apiKeyUsage WHERE apiKeyId=? AND periodKey=?`).get(row.id, periodKey);
+      used = Number(current?.count || 0);
+      if (used >= Number(row.quotaLimit)) {
+        if (consume) this.db.exec(`ROLLBACK`);
+        return { ok: false, reason: "quota_exceeded", key: this.apiKeyRecord(row, now) };
+      }
+      if (consume) {
+        const timestamp = now.toISOString();
+        this.db.prepare(`
+          INSERT INTO apiKeyUsage(apiKeyId,periodKey,count,updatedAt)
+          VALUES(?,?,1,?)
+          ON CONFLICT(apiKeyId,periodKey) DO UPDATE SET count=count+1, updatedAt=excluded.updatedAt
+        `).run(row.id, periodKey, timestamp);
+        this.db.exec(`COMMIT`);
+        used += 1;
+      }
+    } catch (error) {
+      if (consume) {
+        try { this.db.exec(`ROLLBACK`); } catch {}
+      }
+      throw error;
+    }
+    return { ok: true, key: this.apiKeyRecord({ ...row, quotaUsed: used }, now) };
   }
 
   execute(operation) {

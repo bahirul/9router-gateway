@@ -341,6 +341,7 @@ test("api keys gate routed requests when enabled", async (t) => {
   const app = createSmartRouter({ config, logger: { error() {}, warn() {} } });
   await app.storageReady;
   const created = app.decisionStore.createApiKey({ name: "client-key" });
+  const limited = app.decisionStore.createApiKey({ name: "limited-key", quotaPeriod: "day", quotaLimit: 1 });
   const sidecarPort = await listen(app.server);
   t.after(async () => {
     await close(app.server);
@@ -358,4 +359,28 @@ test("api keys gate routed requests when enabled", async (t) => {
   const models = (await allowed.json()).data.map((model) => model.id);
   assert.ok(models.includes("model-a"));
   assert.ok(models.includes("auto"));
+  assert.equal(app.decisionStore.getApiKey(created.id).quotaUsed, 0);
+  assert.equal(
+    app.decisionStore.db.prepare(`SELECT COUNT(*) AS total FROM apiKeyUsage`).get().total,
+    0,
+  );
+
+  const malformed = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "x-api-key": limited.secret },
+    body: "not-json",
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(app.decisionStore.getApiKey(limited.id).quotaUsed, 0);
+
+  const limitedFirst = await fetch(`${baseUrl}/v1/models`, {
+    headers: { "x-api-key": limited.secret },
+  });
+  assert.equal(limitedFirst.status, 200);
+
+  const limitedSecond = await fetch(`${baseUrl}/v1/models`, {
+    headers: { "x-api-key": limited.secret },
+  });
+  assert.equal(limitedSecond.status, 429);
+  assert.equal((await limitedSecond.json()).error, "api key quota exceeded");
 });

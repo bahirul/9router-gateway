@@ -47,6 +47,19 @@ function validExpiry(value) {
   return Number.isFinite(Date.parse(value));
 }
 
+function parseQuota(body) {
+  const quotaPeriod = body.quotaPeriod ?? null;
+  const quotaLimit = body.quotaLimit ?? null;
+  if (quotaPeriod === null || quotaPeriod === "") {
+    if (quotaLimit !== null && quotaLimit !== "") return { error: "quotaLimit must be null when quotaPeriod is null" };
+    return { quotaPeriod: null, quotaLimit: null };
+  }
+  if (quotaPeriod !== "day" && quotaPeriod !== "month") return { error: "quotaPeriod must be day, month, or null" };
+  const parsedLimit = Number(quotaLimit);
+  if (!Number.isSafeInteger(parsedLimit) || parsedLimit <= 0) return { error: "quotaLimit must be a positive integer" };
+  return { quotaPeriod, quotaLimit: parsedLimit };
+}
+
 function validateTargets(config, catalog) {
   if (!config.upstream.strictModelValidation || !catalog.ready) return;
   const targets = new Set([
@@ -191,8 +204,13 @@ export function createAdminApi(context) {
           sendJson(res, 400, { error: "expiresAt must be a valid ISO timestamp or null" });
           return true;
         }
+        const quota = parseQuota(body);
+        if (quota.error) {
+          sendJson(res, 400, { error: quota.error });
+          return true;
+        }
         const expiresAt = body.expiresAt === null || body.expiresAt === undefined ? null : String(body.expiresAt);
-        const created = store.createApiKey({ name: body.name.trim(), expiresAt });
+        const created = store.createApiKey({ name: body.name.trim(), expiresAt, ...quota });
         metrics.increment("smart_router_api_keys_total", { result: "created" });
         sendJson(res, 200, created);
         return true;
@@ -207,11 +225,19 @@ export function createAdminApi(context) {
           sendJson(res, 404, { error: "API key not found" });
           return true;
         }
-        if (typeof body.active !== "boolean") {
+        if (body.active !== undefined && typeof body.active !== "boolean") {
           sendJson(res, 400, { error: "active must be a boolean" });
           return true;
         }
-        const updated = store.setApiKeyActive(id, body.active);
+        let updated = body.active === undefined ? store.getApiKey(id) : store.setApiKeyActive(id, body.active);
+        if (body.quotaPeriod !== undefined || body.quotaLimit !== undefined) {
+          const quota = parseQuota(body);
+          if (quota.error) {
+            sendJson(res, 400, { error: quota.error });
+            return true;
+          }
+          updated = store.setApiKeyQuota(id, quota.quotaPeriod, quota.quotaLimit);
+        }
         metrics.increment("smart_router_api_keys_total", { result: "updated" });
         sendJson(res, 200, updated);
         return true;
