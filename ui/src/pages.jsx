@@ -1029,25 +1029,28 @@ export function SystemPage() {
   }
   function copy(value) { navigator.clipboard.writeText(value); setMessage("Copied to clipboard"); }
   const anthropicMessagesUrl = `${status.proxyBaseUrl}/messages`;
+  const gatewayRootUrl = status.proxyBaseUrl.replace(/\/v1\/?$/, "");
   const endpointExamples = {
     openai: {
-      title: "OpenAI-compatible config",
-      description: "Minimal client settings for OpenAI-compatible SDKs and tools.",
-      items: [
-        ["Base URL", status.proxyBaseUrl],
-        ["API key", "<your API key>"],
-        ["Model", "auto"],
-      ],
+      title: "Codex CLI config.toml",
+      description: "Minimal ~/.codex/config.toml provider for this gateway.",
+      language: "toml",
+      body: `# ~/.codex/config.toml\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\nenv_key = "SMART_ROUTER_API_KEY"`,
     },
     anthropic: {
-      title: "Claude/Anthropic config",
-      description: "Minimal client settings for Anthropic Messages-compatible clients.",
-      items: [
-        ["Base URL", status.proxyBaseUrl],
-        ["Messages endpoint", anthropicMessagesUrl],
-        ["API key", "<your API key>"],
-        ["Model", "auto"],
-      ],
+      title: "Claude Code settings.json",
+      description: "Minimal settings.json gateway config for Claude Code.",
+      language: "json",
+      body: JSON.stringify({
+        $schema: "https://json.schemastore.org/claude-code-settings.json",
+        model: "auto",
+        env: {
+          ANTHROPIC_BASE_URL: gatewayRootUrl,
+          ANTHROPIC_AUTH_TOKEN: "<your API key>",
+          ANTHROPIC_CUSTOM_MODEL_OPTION: "auto",
+          ANTHROPIC_CUSTOM_MODEL_OPTION_NAME: "9Router auto",
+        },
+      }, null, 2),
     },
   };
   async function updatePassword() {
@@ -1090,13 +1093,11 @@ export function SystemPage() {
       <Dialog open={Boolean(dialog)} title={dialog?.title} description={dialog?.description} confirmLabel={dialog?.confirmLabel} destructive={dialog?.destructive} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />
       <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={() => setEndpointExample(null)} onConfirm={() => setEndpointExample(null)}>
         <div className="space-y-3">
-          {endpointExample?.items.map(([label, value]) => (
-            <div key={label}>
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">{label}</p>
-              <code className="block break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{value}</code>
-            </div>
-          ))}
-          <p className="text-xs text-text-muted">Create an API key on the API Keys page if API-key enforcement is enabled.</p>
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">{endpointExample?.language}</p>
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{endpointExample?.body}</pre>
+          </div>
+          <p className="text-xs text-text-muted">Create an API key on the API Keys page if API-key enforcement is enabled, then use it for the placeholder token or env key.</p>
         </div>
       </Dialog>
       <div className="grid gap-5 xl:grid-cols-2">
