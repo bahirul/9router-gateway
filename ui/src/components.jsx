@@ -52,7 +52,7 @@ export function Badge({ children, tone = "neutral" }) {
 
 export function Field({ label, hint, children }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="mb-1.5 block text-sm font-medium text-text-main">{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-text-muted">{hint}</span>}
@@ -62,11 +62,12 @@ export function Field({ label, hint, children }) {
 
 export function Input(props) {
   const { className = "", ...rest } = props;
-  return <input className={`w-full rounded-[10px] border border-border bg-bg px-3 py-2 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 ${className}`.trim()} {...rest} />;
+  return <input className={`min-w-0 max-w-full w-full rounded-[10px] border border-border bg-bg px-3 py-2 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 ${className}`.trim()} {...rest} />;
 }
 
 export function Select(props) {
-  return <select className="w-full rounded-[10px] border border-border bg-bg px-3 py-2 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15" {...props} />;
+  const { className = "", ...rest } = props;
+  return <select className={`min-w-0 max-w-full w-full rounded-[10px] border border-border bg-bg px-3 py-2 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 ${className}`.trim()} {...rest} />;
 }
 
 export function Toggle({ checked, onChange, disabled = false }) {

@@ -241,7 +241,7 @@ export function OverviewPage() {
 }
 
 function HealthRow({ label, good, value }) {
-  return <div className="flex items-center justify-between gap-3"><span className="text-text-muted">{label}</span><div className="flex items-center gap-2"><span className={`size-2 rounded-full ${good ? "bg-success" : "bg-danger"}`} /><span className="max-w-48 truncate">{value}</span></div></div>;
+  return <div className="flex min-w-0 items-center justify-between gap-3"><span className="min-w-0 text-text-muted">{label}</span><div className="flex min-w-0 items-center gap-2"><span className={`size-2 shrink-0 rounded-full ${good ? "bg-success" : "bg-danger"}`} /><span className="min-w-0 max-w-48 truncate">{value}</span></div></div>;
 }
 
 function Distribution({ title, data }) {
@@ -340,7 +340,7 @@ export function RoutingPage() {
         <Card title="Upstream behavior" subtitle="Request handling and 9Router catalog validation.">
           <div className="grid gap-4 sm:grid-cols-2">
             <NumberField label="Request timeout (ms)" value={form.upstream.requestTimeoutMs} onChange={(value) => field("upstream.requestTimeoutMs", value)} />
-            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Strict model validation</p><p className="text-xs text-text-muted">Fail closed when a target is missing from the 9Router catalog.</p></div><Toggle checked={form.upstream.strictModelValidation} onChange={(value) => field("upstream.strictModelValidation", value)} /></div>
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><div className="min-w-0"><p className="text-sm font-medium">Strict model validation</p><p className="text-xs text-text-muted">Fail closed when a target is missing from the 9Router catalog.</p></div><div className="shrink-0"><Toggle checked={form.upstream.strictModelValidation} onChange={(value) => field("upstream.strictModelValidation", value)} /></div></div>
           </div>
         </Card>
         <Card title="Target mapping" subtitle="Each tier points to an existing 9Router combo or model.">
@@ -365,29 +365,29 @@ export function RoutingPage() {
         <Card title="Virtual model profiles" subtitle="Bias uncertain prompts without bypassing safety floors.">
           <div className="space-y-4">
             {Object.entries(form.routing.profiles).map(([name, profile]) => (
-              <div key={name} className="grid grid-cols-[1fr_120px] items-center gap-4">
-                <div><p className="font-medium">{name}</p><p className="text-xs text-text-muted">{name === "auto-fast" ? "Favor cheaper tiers" : name === "auto-quality" ? "Favor stronger tiers" : "Balanced default"}</p></div>
+              <div key={name} className="grid grid-cols-[minmax(0,1fr)_minmax(5rem,7.5rem)] items-center gap-4">
+                <div className="min-w-0"><p className="font-medium">{name}</p><p className="text-xs text-text-muted">{name === "auto-fast" ? "Favor cheaper tiers" : name === "auto-quality" ? "Favor stronger tiers" : "Balanced default"}</p></div>
                 <Input type="number" value={profile.scoreBias} onChange={(event) => field(`routing.profiles.${name}.scoreBias`, Number(event.target.value))} />
               </div>
             ))}
           </div>
         </Card>
         <Card title="Shadow mode" subtitle="Record predictions while dispatching every virtual request to one target.">
-          <div className="flex items-center justify-between"><div><p className="font-medium">Enable shadow mode</p><p className="text-xs text-text-muted">Useful for policy calibration before active routing.</p></div><Toggle checked={form.routing.shadowMode} onChange={(value) => field("routing.shadowMode", value)} /></div>
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable shadow mode</p><p className="text-xs text-text-muted">Useful for policy calibration before active routing.</p></div><div className="shrink-0"><Toggle checked={form.routing.shadowMode} onChange={(value) => field("routing.shadowMode", value)} /></div></div>
           <div className="mt-4"><Field label="Shadow dispatch target"><Input list="catalog-targets" value={form.routing.shadowTarget} onChange={(event) => field("routing.shadowTarget", event.target.value)} /></Field></div>
         </Card>
         <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${form.classifier.revision.slice(0, 8)}`}>
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
               <p className="font-medium">Use semantic classification</p>
               <p className="text-xs text-text-muted">Only for prompts near a decision boundary.</p>
             </div>
-            <Toggle checked={form.classifier.enabled} onChange={(value) => field("classifier.enabled", value)} />
+            <div className="shrink-0"><Toggle checked={form.classifier.enabled} onChange={(value) => field("classifier.enabled", value)} /></div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <NumberField label="Timeout (ms)" value={form.classifier.timeoutMs} onChange={(value) => field("classifier.timeoutMs", value)} />
             <NumberField label="Minimum confidence" step="0.01" value={form.classifier.minimumConfidence} onChange={(value) => field("classifier.minimumConfidence", value)} />
-            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3 sm:col-span-2"><div><p className="text-sm font-medium">Use local model files only</p><p className="text-xs text-text-muted">Require cached classifier files instead of downloading missing model assets.</p></div><Toggle checked={form.classifier.localFilesOnly} onChange={(value) => field("classifier.localFilesOnly", value)} /></div>
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3 sm:col-span-2"><div className="min-w-0"><p className="text-sm font-medium">Use local model files only</p><p className="text-xs text-text-muted">Require cached classifier files instead of downloading missing model assets.</p></div><div className="shrink-0"><Toggle checked={form.classifier.localFilesOnly} onChange={(value) => field("classifier.localFilesOnly", value)} /></div></div>
           </div>
         </Card>
         <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">
@@ -395,7 +395,7 @@ export function RoutingPage() {
             <NumberField label="Affinity TTL (minutes)" value={Math.round(form.affinity.ttlMs / 60000)} onChange={(value) => field("affinity.ttlMs", value * 60000)} />
             <NumberField label="Maximum affinities" value={form.affinity.maxEntries} onChange={(value) => field("affinity.maxEntries", value)} />
             <NumberField label="History retention (days)" value={form.logging.retentionDays} onChange={(value) => field("logging.retentionDays", value)} />
-            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><Toggle checked={form.logging.rawPrompts} onChange={(value) => field("logging.rawPrompts", value)} /></div>
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><div className="min-w-0"><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><div className="shrink-0"><Toggle checked={form.logging.rawPrompts} onChange={(value) => field("logging.rawPrompts", value)} /></div></div>
           </div>
         </Card>
       </div>
@@ -497,7 +497,7 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   return (
     <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose}>
       <aside className="absolute inset-y-0 right-0 w-full max-w-xl overflow-y-auto bg-surface p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-6 flex items-center justify-between"><div><h2 className="text-lg font-semibold">Decision details</h2><code className="text-xs text-text-muted">{item.requestId}</code></div><Button variant="ghost" onClick={onClose}><Icon>close</Icon></Button></div>
+        <div className="mb-6 flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="text-lg font-semibold">Decision details</h2><code className="block break-all text-xs text-text-muted">{item.requestId}</code></div><Button variant="ghost" className="shrink-0" onClick={onClose}><Icon>close</Icon></Button></div>
         {item.prompt && <div className="mb-4 rounded-[10px] border border-danger/20 bg-danger/5 p-3"><p className="mb-1 text-xs font-semibold uppercase text-danger">Raw prompt stored</p><p className="whitespace-pre-wrap text-sm">{item.prompt}</p></div>}
         {item.request && <div className="mb-4 rounded-[10px] border border-warning/20 bg-warning/5 p-3"><p className="mb-1 text-xs font-semibold uppercase text-warning">Request context stored{item.request.truncated ? " (truncated)" : ""}</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-5">{typeof item.request.body === "string" ? item.request.body : JSON.stringify(item.request.body, null, 2)}</pre></div>}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -814,28 +814,28 @@ export function ApiKeysPage() {
       </Dialog>
       <div>
         <section className="border-b border-border-subtle pb-7">
-          <div className="flex items-center justify-between gap-4">
-            <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-lg font-medium">Require API key</p>
               <p className="mt-1 text-sm text-text-muted">Requests without a valid key will be rejected.</p>
             </div>
-            <Toggle checked={authEnabled} disabled={toggleSaving} onChange={updateApiKeyAuth} />
+            <div className="shrink-0"><Toggle checked={authEnabled} disabled={toggleSaving} onChange={updateApiKeyAuth} /></div>
           </div>
         </section>
         <section>
           {apiKeys.length ? apiKeys.map((key) => (
-            <div key={key.id} className="flex items-center justify-between gap-5 border-b border-border-subtle py-6">
+            <div key={key.id} className="flex flex-col gap-4 border-b border-border-subtle py-6 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
               <div className="min-w-0">
                 <p className="font-medium">{key.name}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-text-muted">
-                  <code>{revealedKeys[key.id] && key.secret ? key.secret : key.displayPrefix}</code>
+                  <code className="max-w-full break-all">{revealedKeys[key.id] && key.secret ? key.secret : key.displayPrefix}</code>
                   {!key.secret && <span className="text-warning">Secret unavailable</span>}
                   <span>Created {formatApiKeyDate(key.createdAt)}</span>
                   {key.expiresAt && <span>{key.status === "expired" ? "Expired" : "Expires"} {formatApiKeyDate(key.expiresAt)}</span>}
                   {key.status === "inactive" && <span className="text-warning">Disabled</span>}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 flex-wrap items-center gap-3">
                 <Button
                   variant="ghost"
                   className="size-9 px-0"
@@ -980,11 +980,11 @@ export function SystemPage() {
           <div className="space-y-3">
             <div>
               <p className="mb-2 text-text-muted">OpenAI-compatible base URL</p>
-              <div className="flex gap-2"><Input readOnly value={status.proxyBaseUrl} /><Button variant="secondary" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button></div>
+              <div className="flex min-w-0 gap-2"><Input readOnly value={status.proxyBaseUrl} /><Button variant="secondary" className="shrink-0" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button></div>
             </div>
             <div>
               <p className="mb-2 text-text-muted">Anthropic Messages endpoint</p>
-              <div className="flex gap-2"><Input readOnly value={anthropicMessagesUrl} /><Button variant="secondary" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button></div>
+              <div className="flex min-w-0 gap-2"><Input readOnly value={anthropicMessagesUrl} /><Button variant="secondary" className="shrink-0" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button></div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">{["auto","auto-fast","auto-quality"].map((model) => <Badge key={model} tone="primary">{model}</Badge>)}</div>
@@ -1010,9 +1010,9 @@ export function SystemPage() {
               </div>
               <Button onClick={updatePassword}>Update password</Button>
             </div>
-            <div className="flex items-center justify-between gap-4"><div><p className="font-medium">Refresh model catalog</p><p className="text-xs text-text-muted">Re-check target models and combos in 9Router.</p></div><Button variant="secondary" onClick={refreshCatalog}>Refresh</Button></div>
-            <div className="flex items-center justify-between gap-4 border-t border-border-subtle pt-4"><div><p className="font-medium">Purge decision history</p><p className="text-xs text-text-muted">Delete stored decisions and operator feedback from the database.</p></div><Button variant="danger" onClick={resetDecisionHistory}>Purge</Button></div>
-            <div className="flex items-center justify-between gap-4 border-t border-border-subtle pt-4"><div><p className="font-medium">Reset runtime overrides</p><p className="text-xs text-text-muted">Return to config.yaml and environment values immediately.</p></div><Button variant="danger" onClick={resetOverrides}>Reset</Button></div>
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Refresh model catalog</p><p className="text-xs text-text-muted">Re-check target models and combos in 9Router.</p></div><Button variant="secondary" className="shrink-0" onClick={refreshCatalog}>Refresh</Button></div>
+            <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Purge decision history</p><p className="text-xs text-text-muted">Delete stored decisions and operator feedback from the database.</p></div><Button variant="danger" className="shrink-0" onClick={resetDecisionHistory}>Purge</Button></div>
+            <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset runtime overrides</p><p className="text-xs text-text-muted">Return to config.yaml and environment values immediately.</p></div><Button variant="danger" className="shrink-0" onClick={resetOverrides}>Reset</Button></div>
           </div>
         </Card>
       </div>
