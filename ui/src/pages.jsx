@@ -1094,7 +1094,10 @@ export function SystemPage() {
       <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={() => setEndpointExample(null)} onConfirm={() => setEndpointExample(null)}>
         <div className="space-y-3">
           <div>
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">{endpointExample?.language}</p>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{endpointExample?.language}</p>
+              <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={() => copy(endpointExample?.body || "")}><Icon>content_copy</Icon>Copy</Button>
+            </div>
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{endpointExample?.body}</pre>
           </div>
           <p className="text-xs text-text-muted">Create an API key on the API Keys page if API-key enforcement is enabled, then use it for the placeholder token or env key.</p>
