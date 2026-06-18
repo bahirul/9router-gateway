@@ -67,6 +67,21 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     for await (const chunk of req) chunks.push(chunk);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
     upstreamRequests.push({ url: req.url, body });
+    if (body.response_format?.type === "json_object") {
+      const reviewInput = JSON.parse(body.messages[1].content);
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          items: reviewInput.records.map((record) => ({
+            requestId: record.requestId,
+            verdict: "incorrect",
+            expectedTargetKey: "planning",
+            confidence: 0.92,
+            rationale: "integration correction",
+          })),
+        }) } }],
+      }));
+    }
     if (body.stream) {
       res.setHeader("Content-Type", "text/event-stream");
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "hello" } }], model: body.model })}\n\n`);
@@ -319,6 +334,40 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   assert.equal(decisionDetail.request.body.model, "auto");
   assert.match(decisionDetail.prompt, /Translate hello/);
 
+  const correctionPreview = await fetch(`${baseUrl}/api/admin/decisions/corrections/preview`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ ids: [decisionWithContext.requestId], judgeModel: "smart-large" }),
+  }).then((response) => response.json());
+  assert.equal(correctionPreview.eligibleCount, 1);
+  assert.equal(correctionPreview.items[0].suggestion.expectedTargetKey, "planning");
+
+  const correctionApply = await fetch(`${baseUrl}/api/admin/decisions/corrections/${encodeURIComponent(correctionPreview.id)}/apply`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ expectedRevision: correctionPreview.configRevision, selectedRequestIds: [decisionWithContext.requestId] }),
+  }).then((response) => response.json());
+  assert.equal(correctionApply.appliedFeedback, 1);
+  assert.equal(correctionApply.promptCorrections, 1);
+
+  const corrected = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Translate hello to French." }],
+    }),
+  });
+  assert.equal(corrected.headers.get("x-smart-router-target"), "smart-planning");
+
   const createdKey = await fetch(`${baseUrl}/api/admin/api-keys`, {
     method: "POST",
     headers: {
@@ -377,7 +426,8 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   });
   assert.equal(relogin.status, 200);
 
-  assert.equal(upstreamRequests.length, 7);
+  assert.equal(upstreamRequests.length, 9);
+  assert.ok(upstreamRequests.some((request) => request.body.response_format?.type === "json_object"));
 });
 
 test("api keys gate routed requests when enabled", async (t) => {

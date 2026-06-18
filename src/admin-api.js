@@ -98,6 +98,7 @@ export function createAdminApi(context) {
     affinity,
     metrics,
     getConfig,
+    corrector,
   } = context;
 
   return async function handleAdmin(req, res, pathname, searchParams) {
@@ -374,6 +375,38 @@ export function createAdminApi(context) {
       if (pathname === "/api/admin/decisions" && req.method === "DELETE") {
         store.clearDecisions();
         sendJson(res, 200, { deleted: true });
+        return true;
+      }
+
+      if (pathname === "/api/admin/decisions/corrections/preview" && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (!corrector) {
+          sendJson(res, 503, { error: "Decision correction is unavailable" });
+          return true;
+        }
+        sendJson(res, 200, await corrector.preview(body));
+        return true;
+      }
+
+      const correctionApplyMatch = pathname.match(/^\/api\/admin\/decisions\/corrections\/([^/]+)\/apply$/);
+      if (correctionApplyMatch && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (!corrector) {
+          sendJson(res, 503, { error: "Decision correction is unavailable" });
+          return true;
+        }
+        sendJson(res, 200, corrector.apply(decodeURIComponent(correctionApplyMatch[1]), body));
+        return true;
+      }
+
+      const correctionMatch = pathname.match(/^\/api\/admin\/decisions\/corrections\/([^/]+)$/);
+      if (correctionMatch && req.method === "GET") {
+        if (!corrector) {
+          sendJson(res, 503, { error: "Decision correction is unavailable" });
+          return true;
+        }
+        const run = corrector.get(decodeURIComponent(correctionMatch[1]));
+        sendJson(res, run ? 200 : 404, run || { error: "Correction run not found" });
         return true;
       }
 

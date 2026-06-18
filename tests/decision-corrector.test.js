@@ -1,0 +1,151 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { AffinityStore } from "../src/affinity.js";
+import { DEFAULT_CONFIG, mergeDeep } from "../src/config.js";
+import { DecisionCorrector } from "../src/decision-corrector.js";
+import { DecisionStore } from "../src/decision-store.js";
+import { requestSnapshot } from "../src/log-store.js";
+import { Metrics } from "../src/metrics.js";
+import { normalizeRequest } from "../src/request-normalizer.js";
+import { RouterEngine } from "../src/router-engine.js";
+
+async function createStore(t) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-corrector-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+  return store;
+}
+
+function seedDecision(store, { requestId = "request-1", prompt = "Plan a zero downtime rollout", targetKey = "medium", target = "smart-medium" } = {}) {
+  const body = { model: "auto", messages: [{ role: "user", content: prompt }] };
+  const normalized = normalizeRequest("/v1/chat/completions", body);
+  store.decision({
+    requestId,
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: normalized.promptHash,
+    requestedModel: "auto",
+    target,
+    targetKey,
+    task: "coding",
+    complexity: "medium",
+    score: 55,
+    confidence: 0.7,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 20,
+    client: "test",
+    prompt,
+    request: requestSnapshot(body),
+    reasons: ["coding"],
+    features: { ruleScore: 55 },
+  });
+  return { body, normalized };
+}
+
+test("previews and applies upstream model decision corrections", async (t) => {
+  const store = await createStore(t);
+  seedDecision(store);
+  store.decision({
+    requestId: "missing-context",
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: "missing",
+    requestedModel: "auto",
+    target: "smart-small",
+    targetKey: "small",
+    task: "quick",
+    complexity: "low",
+    score: 10,
+    confidence: 0.9,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 5,
+    client: "test",
+    reasons: [],
+    features: { ruleScore: 10 },
+  });
+
+  const catalog = { ready: true, models: new Set(["smart-large", "smart-planning"]) };
+  let observed;
+  const corrector = new DecisionCorrector({
+    store,
+    catalog,
+    metrics: new Metrics(),
+    getConfig: () => mergeDeep(DEFAULT_CONFIG, { upstream: { baseUrl: "http://upstream.test", apiKey: "upstream-key" } }),
+    getRevision: () => "rev-1",
+    fetchImpl: async (url, options) => {
+      observed = { url, options, body: JSON.parse(options.body) };
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          items: [{ requestId: "request-1", verdict: "incorrect", expectedTargetKey: "planning", confidence: 0.91, rationale: "rollout planning" }],
+        }) } }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    },
+  });
+
+  const preview = await corrector.preview({ limit: 2, judgeModel: "smart-large", minConfidence: 0.7 });
+  assert.equal(observed.url, "http://upstream.test/v1/chat/completions");
+  assert.equal(observed.options.headers.Authorization, "Bearer upstream-key");
+  assert.equal(observed.body.model, "smart-large");
+  assert.equal(preview.eligibleCount, 1);
+  assert.equal(preview.items.find((item) => item.requestId === "request-1").suggestion.expectedTargetKey, "planning");
+  assert.equal(preview.items.find((item) => item.requestId === "missing-context").skipReason, "missing_context");
+
+  const applied = corrector.apply(preview.id, { expectedRevision: "rev-1", selectedRequestIds: ["request-1"] });
+  assert.equal(applied.appliedFeedback, 1);
+  assert.equal(applied.promptCorrections, 1);
+  assert.equal(store.get("request-1").feedback.expectedTarget, "smart-planning");
+});
+
+test("router uses accepted prompt corrections for future matching prompts", async (t) => {
+  const store = await createStore(t);
+  const { body, normalized } = seedDecision(store, { requestId: "source-request" });
+  store.saveCorrectionRun({
+    id: "corr-routing",
+    createdAt: new Date().toISOString(),
+    status: "previewed",
+    judgeModel: "smart-large",
+    filters: {},
+    requestedCount: 1,
+    eligibleCount: 1,
+    promptVersion: "test",
+    configRevision: "rev",
+  }, [{
+    requestId: "source-request",
+    eligible: true,
+    verdict: "incorrect",
+    expectedTargetKey: "planning",
+    expectedTarget: "smart-planning",
+    confidence: 0.95,
+    rationale: "planning prompt",
+    applyDefault: true,
+  }]);
+  store.applyCorrectionRun("corr-routing", ["source-request"]);
+  assert.equal(store.getPromptCorrection(normalized.promptHash).expectedTargetKey, "planning");
+
+  const config = mergeDeep(DEFAULT_CONFIG, { classifier: { enabled: false }, upstream: { strictModelValidation: false } });
+  const engine = new RouterEngine({
+    config,
+    classifier: { classify: async () => null },
+    affinity: new AffinityStore(config.affinity),
+    catalog: { resolve: (target) => target, lastError: null },
+    metrics: new Metrics(),
+    logStore: { decision() {} },
+    decisionStore: store,
+  });
+  const result = await engine.decide({ pathname: "/v1/chat/completions", body, explainOnly: true });
+  assert.equal(result.decision.mode, "feedback_corrected");
+  assert.equal(result.decision.targetKey, "planning");
+  assert.equal(result.decision.dispatchTarget, "smart-planning");
+});

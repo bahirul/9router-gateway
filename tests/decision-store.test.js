@@ -132,6 +132,67 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(store.verifyApiKey(created.secret), false);
 });
 
+test("persists correction runs and prompt corrections", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-corrections-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  store.decision({
+    requestId: "correction-request",
+    timestamp: new Date().toISOString(),
+    sessionHash: "session",
+    promptHash: "prompt-correction-hash",
+    requestedModel: "auto",
+    target: "smart-medium",
+    targetKey: "medium",
+    task: "coding",
+    complexity: "medium",
+    score: 55,
+    confidence: 0.7,
+    mode: "active",
+    classifierUsed: false,
+    affinityHeld: false,
+    messageCount: 1,
+    toolCount: 0,
+    estimatedTokens: 20,
+    client: "test",
+    prompt: "Plan a rollout",
+    request: requestSnapshot({ model: "auto", messages: [{ role: "user", content: "Plan a rollout" }] }),
+    reasons: ["coding"],
+    features: { ruleScore: 55 },
+  });
+
+  store.saveCorrectionRun({
+    id: "corr-test",
+    createdAt: new Date().toISOString(),
+    status: "previewed",
+    judgeModel: "smart-large",
+    filters: { target: "medium" },
+    requestedCount: 1,
+    eligibleCount: 1,
+    promptVersion: "test",
+    configRevision: "rev",
+  }, [{
+    requestId: "correction-request",
+    eligible: true,
+    verdict: "incorrect",
+    expectedTargetKey: "planning",
+    expectedTarget: "smart-planning",
+    confidence: 0.9,
+    rationale: "planning prompt",
+    applyDefault: true,
+  }]);
+
+  const run = store.getCorrectionRun("corr-test");
+  assert.equal(run.items[0].expectedTargetKey, "planning");
+  const applied = store.applyCorrectionRun("corr-test", ["correction-request"], { minConfidence: 0.7 });
+  assert.equal(applied.appliedFeedback, 1);
+  assert.equal(applied.promptCorrections, 1);
+  assert.equal(store.get("correction-request").feedback.expectedTarget, "smart-planning");
+  assert.equal(store.getPromptCorrection("prompt-correction-hash").expectedTargetKey, "planning");
+});
+
 test("enforces api key request quotas", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-key-quotas-"));
   const store = new DecisionStore({ directory, logger: { warn() {} } });

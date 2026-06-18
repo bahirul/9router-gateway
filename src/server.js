@@ -7,6 +7,7 @@ import { createAdminApi } from "./admin-api.js";
 import { AffinityStore } from "./affinity.js";
 import { ModelCatalog } from "./catalog.js";
 import { SemanticClassifier } from "./classifier.js";
+import { DecisionCorrector } from "./decision-corrector.js";
 import {
   RuntimeConfigManager,
   mergeDeep,
@@ -391,6 +392,7 @@ export function createSmartRouter({
   const logStore = new LogStore(currentConfig.logging, decisionStore);
   const catalog = new ModelCatalog(currentConfig.upstream, metrics, fetchImpl);
   const classifier = new SemanticClassifier(currentConfig.classifier, metrics, logger);
+  const getConfig = () => currentConfig;
   const engine = new RouterEngine({
     config: currentConfig,
     classifier,
@@ -398,12 +400,20 @@ export function createSmartRouter({
     catalog,
     metrics,
     logStore,
+    decisionStore,
+  });
+  const corrector = new DecisionCorrector({
+    store: decisionStore,
+    catalog,
+    metrics,
+    getConfig,
+    getRevision: () => manager.describe().revision,
+    fetchImpl,
   });
   const sessions = new SessionManager(currentConfig.security);
   sessions.setPasswordVerifier((candidate) => decisionStore.verifyAdminPassword(candidate));
   const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
   const serveStaticUi = createStaticUi(path.resolve(moduleDirectory, "../ui/dist"));
-  const getConfig = () => currentConfig;
   const handleAdmin = createAdminApi({
     configManager: manager,
     sessions,
@@ -414,6 +424,7 @@ export function createSmartRouter({
     affinity,
     metrics,
     logStore,
+    corrector,
     getConfig,
   });
 

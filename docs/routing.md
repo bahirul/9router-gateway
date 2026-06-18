@@ -88,6 +88,14 @@ Behavior:
 
 Forced models are selected from the upstream catalog in Dashboard → API Keys. Custom values are allowed in the UI, but API validation rejects unknown models when the catalog is ready.
 
+## Batch Decision Correction
+
+Dashboard → Decisions can ask an upstream 9Router model to review recent decision records in batches. The review is preview-only until an operator applies selected corrections.
+
+Only records with stored prompt/request context are eligible. Enable Dashboard → Routing → Raw prompt logging before collecting decisions you want to review; stored request context is sanitized for sensitive fields before persistence.
+
+Applying a correction writes operator feedback and stores an exact prompt-hash correction for future matching prompts. Corrections do not rewrite task-class regexes, thresholds, or model targets automatically.
+
 ## Strict Model Validation
 
 When `upstream.strictModelValidation` is enabled, automatic routing fails closed if the chosen target is missing from the 9Router `/v1/models` catalog.

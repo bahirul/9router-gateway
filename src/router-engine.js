@@ -5,13 +5,14 @@ import { isAmbiguous, makeDecision } from "./policy.js";
 import { compileTaskClasses } from "./task-classes.js";
 
 export class RouterEngine {
-  constructor({ config, classifier, affinity, catalog, metrics, logStore }) {
+  constructor({ config, classifier, affinity, catalog, metrics, logStore, decisionStore = null }) {
     this.setConfig(config);
     this.classifier = classifier;
     this.affinity = affinity;
     this.catalog = catalog;
     this.metrics = metrics;
     this.logStore = logStore;
+    this.decisionStore = decisionStore;
   }
 
   setConfig(config) {
@@ -53,6 +54,23 @@ export class RouterEngine {
 
     const forcedDispatch = forcedModel ? String(forcedModel).trim() : null;
     if (forcedDispatch) decision = { ...decision, mode: "key_shadow", keyForcedModel: forcedDispatch };
+
+    if (!forcedDispatch && !this.config.routing.shadowMode) {
+      const correction = this.decisionStore?.getPromptCorrection(normalized.promptHash);
+      if (correction) {
+        decision = {
+          ...decision,
+          configuredTarget: decision.target,
+          correctionSourceRequestId: correction.sourceRequestId,
+          correctionRunId: correction.correctionRunId,
+          correctionConfidence: correction.confidence,
+          correctionRationale: correction.rationale,
+          targetKey: correction.expectedTargetKey,
+          target: correction.expectedTarget,
+          mode: "feedback_corrected",
+        };
+      }
+    }
 
     const fallback = forcedDispatch ? null : this.config.routing.targets.medium;
     const dispatchCandidate = forcedDispatch || (this.config.routing.shadowMode

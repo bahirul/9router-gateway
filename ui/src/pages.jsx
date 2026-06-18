@@ -599,6 +599,11 @@ export function DecisionsPage() {
   const [filters, setFilters] = useState({ target: "", task: "", complexity: "", status: "", mode: "" });
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState("");
+  const [catalog, setCatalog] = useState([]);
+  const [correction, setCorrection] = useState(null);
+  const [correctionSelected, setCorrectionSelected] = useState([]);
+  const [correctionOptions, setCorrectionOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
+  const [correctionLoading, setCorrectionLoading] = useState(false);
   const query = useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString(), [filters]);
 
   async function load(cursor = "") {
@@ -609,6 +614,7 @@ export function DecisionsPage() {
     } catch (failure) { setError(failure.message); }
   }
   useEffect(() => { load(); }, [query]);
+  useEffect(() => { api("/api/admin/catalog").then((value) => setCatalog(value.models || [])).catch(() => {}); }, []);
   if (!data) return <Loading />;
 
   async function openDecision(id) {
@@ -616,9 +622,52 @@ export function DecisionsPage() {
     catch (failure) { setError(failure.message); }
   }
 
+  async function previewCorrections() {
+    setCorrectionLoading(true);
+    try {
+      const value = await api("/api/admin/decisions/corrections/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          filters,
+          limit: 25,
+          judgeModel: correctionOptions.judgeModel || undefined,
+          minConfidence: Number(correctionOptions.minConfidence) || 0.7,
+        }),
+      });
+      setCorrection(value);
+      setCorrectionSelected(value.items.filter((item) => item.suggestion?.applyDefault).map((item) => item.requestId));
+      setError("");
+    } catch (failure) { setError(failure.message); }
+    finally { setCorrectionLoading(false); }
+  }
+
+  async function applyCorrections() {
+    if (!correction) return;
+    setCorrectionLoading(true);
+    try {
+      const value = await api(`/api/admin/decisions/corrections/${encodeURIComponent(correction.id)}/apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          expectedRevision: correction.configRevision,
+          selectedRequestIds: correctionSelected,
+          minConfidence: Number(correctionOptions.minConfidence) || 0.7,
+          enablePromptCorrections: true,
+        }),
+      });
+      setCorrection({ ...correction, applyResult: value });
+      await load();
+      setError("");
+    } catch (failure) { setError(failure.message); }
+    finally { setCorrectionLoading(false); }
+  }
+
+  function toggleCorrection(id, checked) {
+    setCorrectionSelected((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+  }
+
   return (
     <>
-      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button>} />
+      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex gap-2"><Button variant="secondary" onClick={previewCorrections} disabled={correctionLoading}><Icon>rate_review</Icon>{correctionLoading ? "Reviewing..." : "Review batch"}</Button><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button></div>} />
       <ErrorBox error={error} />
       <Card className="mb-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -628,6 +677,27 @@ export function DecisionsPage() {
           <Filter label="Mode" value={filters.mode} values={["active","shadow"]} onChange={(value) => setFilters({ ...filters, mode: value })} />
           <Field label="Status"><Input placeholder="e.g. 200" value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })} /></Field>
         </div>
+      </Card>
+      <Card title="Batch correction" subtitle="Ask an upstream model to review stored-context decisions before applying feedback." className="mb-5">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Judge model"><Select value={correctionOptions.judgeModel} onChange={(event) => setCorrectionOptions({ ...correctionOptions, judgeModel: event.target.value })}><option value="">Default smart-large</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
+          <Field label="Min confidence"><Input type="number" step="0.05" min="0" max="1" value={correctionOptions.minConfidence} onChange={(event) => setCorrectionOptions({ ...correctionOptions, minConfidence: event.target.value })} /></Field>
+          <div className="flex items-end"><Button className="w-full" onClick={previewCorrections} disabled={correctionLoading}><Icon>psychology</Icon>Preview corrections</Button></div>
+        </div>
+        <p className="mt-3 text-xs text-text-muted">Only decisions with stored prompt/request context are eligible. Preview sends that context to the selected upstream judge model.</p>
+        {correction && <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-bg p-3 text-sm"><span>{correction.eligibleCount} eligible of {correction.requestedCount} reviewed with <strong>{correction.judgeModel}</strong></span><Button disabled={!correctionSelected.length || correctionLoading} onClick={applyCorrections}><Icon>done_all</Icon>Apply selected</Button></div>
+          {correction.applyResult && <div className="rounded-[10px] bg-success/10 p-3 text-sm text-success">Applied {correction.applyResult.appliedFeedback} feedback corrections and {correction.applyResult.promptCorrections} prompt corrections.</div>}
+          <div className="space-y-2">
+            {correction.items.map((item) => <div key={item.requestId} className="rounded-[10px] border border-border-subtle bg-bg p-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0"><code className="break-all text-xs text-text-muted">{item.requestId}</code><p className="mt-1">Predicted <strong>{item.predicted?.targetKey}</strong>{item.suggestion?.expectedTargetKey ? <> → suggested <strong>{item.suggestion.expectedTargetKey}</strong></> : null}</p></div>
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" disabled={!item.suggestion?.applyDefault && item.suggestion?.verdict !== "incorrect"} checked={correctionSelected.includes(item.requestId)} onChange={(event) => toggleCorrection(item.requestId, event.target.checked)} />Apply</label>
+              </div>
+              {!item.eligible ? <p className="mt-2 text-xs text-warning">Skipped: {item.skipReason}</p> : <p className="mt-2 text-xs text-text-muted">{item.suggestion?.verdict} · confidence {item.suggestion?.confidence} · {item.suggestion?.rationale || "No rationale"}</p>}
+            </div>)}
+          </div>
+        </div>}
       </Card>
       <Card className="overflow-hidden">
         {data.items.length === 0 ? <Empty title="No decisions found" description="Send a request through auto, auto-fast, or auto-quality." /> : (
