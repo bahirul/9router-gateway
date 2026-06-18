@@ -247,6 +247,7 @@ docker build -t 9router-gateway .
 ```
 
 The image builds the dashboard in a separate stage and ships only the production server and compiled UI.
+It uses a glibc-based Node runtime so the semantic classifier's `onnxruntime-node` native library can load in Docker. Set `SMART_ROUTER_CLASSIFIER_ENABLED=false` if you want Docker deployments to use deterministic routing only.
 
 ## Development
 

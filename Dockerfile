@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-alpine AS build
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY ui ./ui
 RUN npm run build:ui
 
-FROM node:22-alpine
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -28,6 +28,6 @@ EXPOSE 20129
 VOLUME ["/app/data"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:20129/healthz >/dev/null || exit 1
+  CMD node -e "fetch('http://127.0.0.1:20129/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "src/server.js"]
