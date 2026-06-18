@@ -30,6 +30,7 @@ import {
 
 const COLORS = ["#E56A4A", "#3B82F6", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#64748B"];
 const CHART_INITIAL_DIMENSION = { width: 1, height: 1 };
+const NO_DATA_COLOR = "#CBD5E1";
 const TASK_CLASS_COLOR = "#3B82F6";
 const COMPLEXITY_COLORS = {
   low: "#10B981",
@@ -145,6 +146,10 @@ export function OverviewPage() {
   const [error, setError] = useState("");
   const [range, setRange] = useState("3h");
   const timeline = useMemo(() => normalizeTimeline(analytics, range), [analytics, range]);
+  const hasTimelineData = timeline.some((item) => Number(item.requests) > 0);
+  const targetData = objectChart(analytics?.byTarget);
+  const hasTargetData = targetData.some((item) => Number(item.value) > 0);
+  const targetChartData = hasTargetData ? targetData : [{ name: "No data yet", value: 1 }];
 
   async function load(selectedRange = range) {
     try {
@@ -201,11 +206,11 @@ export function OverviewPage() {
         <Card title="Request volume" subtitle={requestVolumeSubtitle(range)}>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
-              <AreaChart data={timeline}>
+              <AreaChart data={timeline} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                 <defs><linearGradient id="routeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#E56A4A" stopOpacity={0.35}/><stop offset="95%" stopColor="#E56A4A" stopOpacity={0}/></linearGradient></defs>
                 <CartesianGrid stroke="var(--color-border-subtle)" vertical={false} />
                 <XAxis dataKey="timestamp" tickFormatter={(value) => formatTimelineTick(value, range)} stroke="var(--color-text-muted)" fontSize={11} />
-                <YAxis stroke="var(--color-text-muted)" fontSize={11} allowDecimals={false} />
+                <YAxis width={hasTimelineData ? 40 : 1} tick={hasTimelineData} tickLine={hasTimelineData} stroke="var(--color-text-muted)" fontSize={11} allowDecimals={false} />
                 <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} labelFormatter={(value) => new Date(value).toLocaleString()} />
                 <Area type="monotone" dataKey="requests" stroke="#E56A4A" fill="url(#routeFill)" strokeWidth={2} />
               </AreaChart>
@@ -216,10 +221,11 @@ export function OverviewPage() {
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
               <PieChart>
-                <Pie data={objectChart(analytics.byTarget)} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={3}>
-                  {objectChart(analytics.byTarget).map((entry, index) => <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />)}
+                <Pie data={targetChartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={hasTargetData ? 3 : 0} isAnimationActive={hasTargetData}>
+                  {targetChartData.map((entry, index) => <Cell key={entry.name} fill={hasTargetData ? COLORS[index % COLORS.length] : NO_DATA_COLOR} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />
+                {!hasTargetData && <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="var(--color-text-muted)" fontSize="12">No data yet</text>}
+                {hasTargetData && <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />}
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -246,17 +252,19 @@ function HealthRow({ label, good, value }) {
 
 function Distribution({ title, data }) {
   const chartData = objectChart(data);
+  const hasData = chartData.some((item) => Number(item.value) > 0);
+  const displayData = hasData ? chartData : [{ name: "No data yet", value: 0 }];
   const barFill = title === "Task classes" ? TASK_CLASS_COLOR : null;
   return (
     <Card title={title}>
       <div className="h-44">
         <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
-          <BarChart data={chartData} layout="vertical" margin={{ left: 8 }}>
+          <BarChart data={displayData} layout="vertical" margin={{ left: hasData ? 8 : 0 }}>
             <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" width={80} stroke="var(--color-text-muted)" fontSize={11} />
-            <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />
+            <YAxis type="category" dataKey="name" width={hasData ? 80 : 1} tick={hasData} tickLine={hasData} stroke="var(--color-text-muted)" fontSize={11} />
+            {hasData && <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />}
             <Bar dataKey="value" fill={barFill || "#E56A4A"} radius={[0, 6, 6, 0]}>
-              {!barFill && chartData.map((entry) => (
+              {!barFill && displayData.map((entry) => (
                 <Cell key={entry.name} fill={COMPLEXITY_COLORS[entry.name] || "#E56A4A"} />
               ))}
             </Bar>
