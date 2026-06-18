@@ -61,25 +61,9 @@ const DEFAULT_CONFIG = {
   },
 };
 
-const ENV_FIELDS = {
-  "server.host": "SMART_ROUTER_HOST",
-  "server.port": "SMART_ROUTER_PORT",
-  "server.maxBodyBytes": "SMART_ROUTER_MAX_BODY_BYTES",
-  "upstream.baseUrl": "NINEROUTER_BASE_URL",
-  "upstream.apiKey": "NINEROUTER_API_KEY",
-  "upstream.requestTimeoutMs": "SMART_ROUTER_REQUEST_TIMEOUT_MS",
-  "upstream.strictModelValidation": "SMART_ROUTER_STRICT_MODEL_VALIDATION",
-  "routing.shadowMode": "SMART_ROUTER_SHADOW_MODE",
-  "classifier.enabled": "SMART_ROUTER_CLASSIFIER_ENABLED",
-  "classifier.cacheDir": "SMART_ROUTER_MODEL_CACHE",
-  "classifier.minimumConfidence": "SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE",
-  "classifier.localFilesOnly": "SMART_ROUTER_LOCAL_FILES_ONLY",
-  "logging.directory": "SMART_ROUTER_DATA_DIR",
-  "logging.rawPrompts": "SMART_ROUTER_LOG_RAW_PROMPTS",
-  "security.apiKeyAuthEnabled": "SMART_ROUTER_API_KEY_AUTH_ENABLED",
-};
-
 const UI_EDITABLE_PATHS = new Set([
+  "upstream.requestTimeoutMs",
+  "upstream.strictModelValidation",
   "routing.shadowMode",
   "routing.shadowTarget",
   "routing.thresholds.medium",
@@ -96,6 +80,7 @@ const UI_EDITABLE_PATHS = new Set([
   "classifier.enabled",
   "classifier.timeoutMs",
   "classifier.minimumConfidence",
+  "classifier.localFilesOnly",
   "affinity.ttlMs",
   "affinity.maxEntries",
   "logging.rawPrompts",
@@ -130,14 +115,6 @@ function envNumber(name, fallback) {
   return parsed;
 }
 
-function envBoolean(name, fallback) {
-  const value = process.env[name];
-  if (value === undefined) return fallback;
-  if (value === "true" || value === "1") return true;
-  if (value === "false" || value === "0") return false;
-  throw new Error(`${name} must be true, false, 1, or 0`);
-}
-
 function applyEnvironment(config) {
   return mergeDeep(config, {
     server: {
@@ -148,30 +125,12 @@ function applyEnvironment(config) {
     upstream: {
       baseUrl: process.env.NINEROUTER_BASE_URL ?? config.upstream.baseUrl,
       apiKey: process.env.NINEROUTER_API_KEY ?? config.upstream.apiKey,
-      requestTimeoutMs: envNumber("SMART_ROUTER_REQUEST_TIMEOUT_MS", config.upstream.requestTimeoutMs),
-      strictModelValidation: envBoolean(
-        "SMART_ROUTER_STRICT_MODEL_VALIDATION",
-        config.upstream.strictModelValidation,
-      ),
-    },
-    routing: {
-      shadowMode: envBoolean("SMART_ROUTER_SHADOW_MODE", config.routing.shadowMode),
     },
     classifier: {
-      enabled: envBoolean("SMART_ROUTER_CLASSIFIER_ENABLED", config.classifier.enabled),
       cacheDir: process.env.SMART_ROUTER_MODEL_CACHE ?? config.classifier.cacheDir,
-      minimumConfidence: envNumber(
-        "SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE",
-        config.classifier.minimumConfidence,
-      ),
-      localFilesOnly: envBoolean("SMART_ROUTER_LOCAL_FILES_ONLY", config.classifier.localFilesOnly),
     },
     logging: {
       directory: process.env.SMART_ROUTER_DATA_DIR ?? config.logging.directory,
-      rawPrompts: envBoolean("SMART_ROUTER_LOG_RAW_PROMPTS", config.logging.rawPrompts),
-    },
-    security: {
-      apiKeyAuthEnabled: envBoolean("SMART_ROUTER_API_KEY_AUTH_ENABLED", config.security.apiKeyAuthEnabled),
     },
   });
 }
@@ -256,30 +215,6 @@ function setPath(target, dottedPath, value) {
   cursor[parts.at(-1)] = value;
 }
 
-function getPath(source, dottedPath) {
-  let cursor = source;
-  for (const part of dottedPath.split(".")) {
-    if (!isObject(cursor) && cursor === undefined) return undefined;
-    cursor = cursor?.[part];
-  }
-  return cursor;
-}
-
-function deletePath(target, dottedPath) {
-  const parts = dottedPath.split(".");
-  const parents = [];
-  let cursor = target;
-  for (const part of parts.slice(0, -1)) {
-    if (!isObject(cursor[part])) return;
-    parents.push([cursor, part]);
-    cursor = cursor[part];
-  }
-  delete cursor[parts.at(-1)];
-  for (const [parent, part] of parents.reverse()) {
-    if (isObject(parent[part]) && Object.keys(parent[part]).length === 0) delete parent[part];
-  }
-}
-
 function flattenEditable(source, prefix = "", target = {}) {
   for (const [key, value] of Object.entries(source || {})) {
     const dotted = prefix ? `${prefix}.${key}` : key;
@@ -299,11 +234,7 @@ function leafPaths(source, prefix = "", target = []) {
 }
 
 function lockedFields() {
-  return Object.fromEntries(
-    Object.entries(ENV_FIELDS)
-      .filter(([, envName]) => process.env[envName] !== undefined)
-      .map(([field, envName]) => [field, envName]),
-  );
+  return {};
 }
 
 function publicConfig(config) {
@@ -341,9 +272,32 @@ export class RuntimeConfigManager {
     const preRuntime = mergeDeep(DEFAULT_CONFIG, this.fileConfig);
     const dataDir = path.resolve(process.env.SMART_ROUTER_DATA_DIR || preRuntime.logging.directory);
     this.runtimePath = path.join(dataDir, "runtime-config.json");
+    this.runtimeStore = null;
+    this.runtimeStoreLabel = null;
     this.runtimeOverrides = readJson(this.runtimePath);
     this.listeners = new Set();
     this.reload();
+  }
+
+  async attachStore(store, { notify = false } = {}) {
+    if (!store?.ready) return this.describe();
+    this.runtimeStore = store;
+    this.runtimeStoreLabel = "router.sqlite:meta.runtime_config";
+    const stored = store.getRuntimeConfig();
+    if (stored === null && fs.existsSync(this.runtimePath)) {
+      this.runtimeOverrides = readJson(this.runtimePath);
+      store.setRuntimeConfig(this.runtimeOverrides);
+      try {
+        fs.renameSync(this.runtimePath, `${this.runtimePath}.migrated`);
+      } catch {}
+    } else {
+      this.runtimeOverrides = stored || {};
+    }
+    this.reload();
+    if (notify) {
+      for (const listener of this.listeners) await listener(this.effective);
+    }
+    return this.describe();
   }
 
   reload() {
@@ -365,6 +319,7 @@ export class RuntimeConfigManager {
       overrides: structuredClone(this.runtimeOverrides),
       locked: lockedFields(),
       runtimePath: this.runtimePath,
+      runtimeStore: this.runtimeStoreLabel,
     };
   }
 
@@ -386,30 +341,29 @@ export class RuntimeConfigManager {
       error.status = 400;
       throw error;
     }
-    const locks = lockedFields();
-    const locked = paths.filter((field) => locks[field]
-      && !Object.is(getPath(patch, field), getPath(this.effective, field)));
-    if (locked.length) {
-      const error = new Error(`Fields are controlled by environment variables: ${locked.join(", ")}`);
-      error.status = 400;
-      throw error;
-    }
     const editable = flattenEditable(patch);
-    for (const field of paths.filter((path) => locks[path])) deletePath(editable, field);
     const nextOverrides = mergeDeep(this.runtimeOverrides, editable);
     const candidate = validate(applyEnvironment(
       mergeDeep(mergeDeep(DEFAULT_CONFIG, this.fileConfig), nextOverrides),
     ));
     if (candidateValidator) await candidateValidator(candidate);
-    fs.mkdirSync(path.dirname(this.runtimePath), { recursive: true });
-    const temporary = `${this.runtimePath}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(nextOverrides, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temporary, this.runtimePath);
+    this.persistRuntimeOverrides(nextOverrides);
     this.runtimeOverrides = nextOverrides;
     this.effective = candidate;
     this.revision = stableRevision({ runtime: this.runtimeOverrides, effective: publicConfig(candidate) });
     for (const listener of this.listeners) await listener(candidate);
     return this.describe();
+  }
+
+  persistRuntimeOverrides(overrides) {
+    if (this.runtimeStore?.ready) {
+      this.runtimeStore.setRuntimeConfig(overrides);
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.runtimePath), { recursive: true });
+    const temporary = `${this.runtimePath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(overrides, null, 2)}\n`, { mode: 0o600 });
+    fs.renameSync(temporary, this.runtimePath);
   }
 
   async reset(expectedRevision) {
@@ -418,6 +372,7 @@ export class RuntimeConfigManager {
       error.status = 409;
       throw error;
     }
+    if (this.runtimeStore?.ready) this.runtimeStore.clearRuntimeConfig();
     if (fs.existsSync(this.runtimePath)) fs.unlinkSync(this.runtimePath);
     this.runtimeOverrides = {};
     this.reload();

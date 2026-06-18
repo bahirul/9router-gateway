@@ -356,7 +356,9 @@ export function createSmartRouter({
     retentionDays: currentConfig.logging.retentionDays,
     logger,
   });
-  const storageReady = decisionStore.init();
+  const storageReady = decisionStore.init().then(async () => {
+    if (manager.attachStore) await manager.attachStore(decisionStore, { notify: true });
+  });
   const logStore = new LogStore(currentConfig.logging, decisionStore);
   const catalog = new ModelCatalog(currentConfig.upstream, metrics, fetchImpl);
   const classifier = new SemanticClassifier(currentConfig.classifier, metrics, logger);
@@ -576,6 +578,7 @@ export function createSmartRouter({
 
 export async function start() {
   const app = createSmartRouter();
+  await app.storageReady;
   app.startBackgroundServices();
   await new Promise((resolve, reject) => {
     app.server.once("error", reject);

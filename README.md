@@ -26,7 +26,7 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 - **Conversation affinity** to prevent later turns from being downgraded after stronger routing decisions
 - **Operator dashboard** for analytics, routing controls, decision history, playground testing, and system settings
 - **API-key enforcement** with named keys, expirations, enable/disable controls, and hashed verification
-- **Runtime configuration** with environment locks, dashboard-managed overrides, and no restart for routing changes
+- **Runtime configuration** with SQLite-backed dashboard overrides and no restart for routing changes
 - **Release-friendly operations** with health checks, Prometheus metrics, Docker support, and SQLite-backed history
 
 ## Quick start
@@ -91,10 +91,10 @@ The main configuration file is `config.yaml`. Start from `config.example.yaml`.
 Configuration is applied in this order:
 
 ```text
-defaults < config.yaml < data/runtime-config.json < environment variables
+defaults < config.yaml < SQLite dashboard overrides < bootstrap environment variables
 ```
 
-Dashboard changes are written atomically to `data/runtime-config.json` and apply to new requests without a restart. Values controlled by environment variables appear locked in the dashboard.
+Dashboard changes are stored in `data/router.sqlite` and apply to new requests without a restart. Legacy `data/runtime-config.json` overrides are imported into SQLite once on startup.
 
 Task classification classes are YAML-only. They are loaded from `config.yaml` at startup and are not edited by the dashboard runtime overrides. Each class can define deterministic regex patterns, an optional semantic classifier label, routing score impact, priority, and hard floor:
 
@@ -124,21 +124,17 @@ Common environment variables are listed in `.env.example`:
 - `NINEROUTER_API_KEY` is used for background model-catalog requests when 9Router requires authentication.
 - `SMART_ROUTER_CONFIG` selects the configuration file.
 - `SMART_ROUTER_DATA_DIR` selects the persistent data directory.
+- `SMART_ROUTER_MODEL_CACHE` selects the classifier model cache directory.
 - `SMART_ROUTER_MAX_BODY_BYTES` controls the largest accepted request body.
 - `SMART_ROUTER_HOST` and `SMART_ROUTER_PORT` control the listener.
-- `SMART_ROUTER_REQUEST_TIMEOUT_MS` controls upstream request timeout.
-- `SMART_ROUTER_LOG_RAW_PROMPTS` enables raw prompt/request snapshots in local logs.
-- `SMART_ROUTER_API_KEY_AUTH_ENABLED` can lock client API-key enforcement from the environment.
 
-The existing `SMART_ROUTER_*`, `x-smart-router-*`, and `smart_router_*` names are retained for compatibility.
-`SMART_ROUTER_CLASSIFIER_ENABLED` is optional; setting it explicitly locks the semantic-classification toggle to that value.
-`SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE` is optional; setting it explicitly locks the minimum-confidence field to that value.
+Dashboard-editable settings such as classifier enablement, classifier confidence, request timeout, strict model validation, shadow mode, raw prompt logging, and API-key enforcement are stored in SQLite rather than environment variables. Only the variables listed in `.env.example` are read.
 
 `npm start`, `npm run dev`, and utility scripts load `.env` when it exists. Values already exported by the shell take precedence.
 
 ## Client API keys
 
-API-key enforcement is optional. Enable **Require API key** on the API Keys page or set `SMART_ROUTER_API_KEY_AUTH_ENABLED=true`.
+API-key enforcement is optional. Enable **Require API key** on the API Keys page.
 
 The dashboard can create multiple named keys with an expiration of one day, seven days, 30 days, 90 days, or never. Each key can be enabled, disabled, shown, copied, or permanently deleted.
 
@@ -210,8 +206,7 @@ The `/api/admin/*` endpoints are intended for the dashboard and use its session 
 
 Persistent state lives under `data/` by default:
 
-- `router.sqlite` stores the admin password, API keys, decisions, outcomes, and feedback.
-- `runtime-config.json` stores dashboard configuration overrides.
+- `router.sqlite` stores the admin password, API keys, decisions, outcomes, feedback, and dashboard configuration overrides.
 - `decisions.jsonl` and `feedback.jsonl` remain available for evaluation tooling.
 - `models/` stores the classifier cache.
 
@@ -247,7 +242,7 @@ docker build -t 9router-gateway .
 ```
 
 The image builds the dashboard in a separate stage and ships only the production server and compiled UI.
-It uses a glibc-based Node runtime so the semantic classifier's `onnxruntime-node` native library can load in Docker. Set `SMART_ROUTER_CLASSIFIER_ENABLED=false` if you want Docker deployments to use deterministic routing only.
+It uses a glibc-based Node runtime so the semantic classifier's `onnxruntime-node` native library can load in Docker. Disable semantic classification from the dashboard if you want Docker deployments to use deterministic routing only.
 
 ## Development
 

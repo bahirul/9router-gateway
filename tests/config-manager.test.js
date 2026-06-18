@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { RuntimeConfigManager } from "../src/config.js";
+import { DecisionStore } from "../src/decision-store.js";
 
 function configFixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
@@ -20,9 +21,18 @@ upstream:
   return { directory, configPath };
 }
 
-test("persists revisioned UI overrides and can reset them", async () => {
+async function runtimeManagerFixture(t) {
   const { directory, configPath } = configFixture();
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
   const manager = new RuntimeConfigManager(configPath);
+  await manager.attachStore(store);
+  return { directory, configPath, store, manager };
+}
+
+test("persists revisioned UI overrides in SQLite and can reset them", async (t) => {
+  const { store, manager } = await runtimeManagerFixture(t);
   const initial = manager.describe();
   let observed = null;
   manager.onChange((config) => { observed = config.routing.ambiguityMargin; });
@@ -33,7 +43,9 @@ test("persists revisioned UI overrides and can reset them", async () => {
   );
   assert.equal(updated.config.routing.ambiguityMargin, 11);
   assert.equal(observed, 11);
-  assert.ok(fs.existsSync(path.join(directory, "runtime-config.json")));
+  assert.equal(store.getRuntimeConfig().routing.ambiguityMargin, 11);
+  assert.equal(updated.runtimeStore, "router.sqlite:meta.runtime_config");
+  assert.deepEqual(updated.locked, {});
 
   await assert.rejects(
     manager.update({ routing: { ambiguityMargin: 12 } }, initial.revision),
@@ -46,127 +58,79 @@ test("persists revisioned UI overrides and can reset them", async () => {
 
   const reset = await manager.reset(updated.revision);
   assert.equal(reset.config.routing.ambiguityMargin, 8);
-  assert.equal(fs.existsSync(path.join(directory, "runtime-config.json")), false);
+  assert.equal(store.getRuntimeConfig(), null);
 });
 
-test("environment-managed editable fields are reported and rejected", async () => {
-  const previous = process.env.SMART_ROUTER_SHADOW_MODE;
-  process.env.SMART_ROUTER_SHADOW_MODE = "true";
+test("kept environment variables still configure bootstrap settings", async () => {
+  const previous = {
+    host: process.env.SMART_ROUTER_HOST,
+    port: process.env.SMART_ROUTER_PORT,
+    maxBodyBytes: process.env.SMART_ROUTER_MAX_BODY_BYTES,
+    baseUrl: process.env.NINEROUTER_BASE_URL,
+    apiKey: process.env.NINEROUTER_API_KEY,
+    modelCache: process.env.SMART_ROUTER_MODEL_CACHE,
+    dataDir: process.env.SMART_ROUTER_DATA_DIR,
+  };
+  const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-data-env-"));
+  const modelCache = path.join(dataDirectory, "models-env");
+  process.env.SMART_ROUTER_HOST = "0.0.0.0";
+  process.env.SMART_ROUTER_PORT = "31234";
+  process.env.SMART_ROUTER_MAX_BODY_BYTES = "4096";
+  process.env.NINEROUTER_BASE_URL = "http://upstream-env.test:20128";
+  process.env.NINEROUTER_API_KEY = "env-key";
+  process.env.SMART_ROUTER_MODEL_CACHE = modelCache;
+  process.env.SMART_ROUTER_DATA_DIR = dataDirectory;
   try {
     const { configPath } = configFixture();
     const manager = new RuntimeConfigManager(configPath);
     const state = manager.describe();
-    assert.equal(state.locked["routing.shadowMode"], "SMART_ROUTER_SHADOW_MODE");
-    await assert.rejects(
-      manager.update({ routing: { shadowMode: false } }, state.revision),
-      (error) => error.status === 400,
-    );
+    assert.equal(state.config.upstream.baseUrl, "http://upstream-env.test:20128");
+    assert.equal(manager.get().upstream.apiKey, "env-key");
+    assert.equal(state.config.classifier.model, "Xenova/nli-deberta-v3-xsmall");
+    assert.equal(manager.get().server.host, "0.0.0.0");
+    assert.equal(manager.get().server.port, 31234);
+    assert.equal(manager.get().server.maxBodyBytes, 4096);
+    assert.equal(manager.get().classifier.cacheDir, path.resolve(modelCache));
+    assert.equal(manager.runtimePath, path.join(dataDirectory, "runtime-config.json"));
   } finally {
-    if (previous === undefined) delete process.env.SMART_ROUTER_SHADOW_MODE;
-    else process.env.SMART_ROUTER_SHADOW_MODE = previous;
+    for (const [key, value] of Object.entries({
+      SMART_ROUTER_HOST: previous.host,
+      SMART_ROUTER_PORT: previous.port,
+      SMART_ROUTER_MAX_BODY_BYTES: previous.maxBodyBytes,
+      NINEROUTER_BASE_URL: previous.baseUrl,
+      NINEROUTER_API_KEY: previous.apiKey,
+      SMART_ROUTER_MODEL_CACHE: previous.modelCache,
+      SMART_ROUTER_DATA_DIR: previous.dataDir,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });
 
-test("classifier enablement is dashboard-editable without an environment override", async () => {
-  const previous = process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
-  delete process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
-  try {
-    const { directory, configPath } = configFixture();
-    const manager = new RuntimeConfigManager(configPath);
-    const state = manager.describe();
-    assert.equal(state.locked["classifier.enabled"], undefined);
-
-    const updated = await manager.update({
-      classifier: { enabled: !state.config.classifier.enabled },
-    }, state.revision);
-
-    assert.equal(updated.config.classifier.enabled, !state.config.classifier.enabled);
-    const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
-    assert.equal(overrides.classifier.enabled, !state.config.classifier.enabled);
-  } finally {
-    if (previous === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
-    else process.env.SMART_ROUTER_CLASSIFIER_ENABLED = previous;
-  }
-});
-
-test("classifier confidence is dashboard-editable without an environment override", async () => {
-  const previous = process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
-  delete process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
-  try {
-    const { directory, configPath } = configFixture();
-    const manager = new RuntimeConfigManager(configPath);
-    const state = manager.describe();
-    assert.equal(state.locked["classifier.minimumConfidence"], undefined);
-
-    const updated = await manager.update({
-      classifier: { minimumConfidence: 0.55 },
-    }, state.revision);
-
-    assert.equal(updated.config.classifier.minimumConfidence, 0.55);
-    const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
-    assert.equal(overrides.classifier.minimumConfidence, 0.55);
-  } finally {
-    if (previous === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
-    else process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE = previous;
-  }
-});
-
-test("full-form updates can save unlocked fields when env-locked fields are unchanged", async () => {
-  const previousShadowMode = process.env.SMART_ROUTER_SHADOW_MODE;
-  const previousClassifierEnabled = process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
-  const previousMinimumConfidence = process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
-  process.env.SMART_ROUTER_SHADOW_MODE = "true";
-  process.env.SMART_ROUTER_CLASSIFIER_ENABLED = "false";
-  process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE = "0.45";
-  try {
-    const { directory, configPath } = configFixture();
-    const manager = new RuntimeConfigManager(configPath);
-    const state = manager.describe();
-
-    const updated = await manager.update({
-      routing: {
-        ...state.config.routing,
-        shadowTarget: "smart-large",
-      },
-      classifier: {
-        enabled: state.config.classifier.enabled,
-        timeoutMs: 800,
-        minimumConfidence: state.config.classifier.minimumConfidence,
-      },
-    }, state.revision);
-
-    assert.equal(updated.config.routing.shadowMode, true);
-    assert.equal(updated.config.routing.shadowTarget, "smart-large");
-    assert.equal(updated.config.classifier.enabled, false);
-    assert.equal(updated.config.classifier.timeoutMs, 800);
-    assert.equal(updated.config.classifier.minimumConfidence, 0.45);
-
-    const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
-    assert.equal(overrides.routing.shadowTarget, "smart-large");
-    assert.equal(overrides.routing.shadowMode, undefined);
-    assert.equal(overrides.classifier.timeoutMs, 800);
-    assert.equal(overrides.classifier.enabled, undefined);
-    assert.equal(overrides.classifier.minimumConfidence, undefined);
-  } finally {
-    if (previousShadowMode === undefined) delete process.env.SMART_ROUTER_SHADOW_MODE;
-    else process.env.SMART_ROUTER_SHADOW_MODE = previousShadowMode;
-    if (previousClassifierEnabled === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_ENABLED;
-    else process.env.SMART_ROUTER_CLASSIFIER_ENABLED = previousClassifierEnabled;
-    if (previousMinimumConfidence === undefined) delete process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE;
-    else process.env.SMART_ROUTER_CLASSIFIER_MIN_CONFIDENCE = previousMinimumConfidence;
-  }
-});
-
-test("security api key auth toggle is editable and persisted", async () => {
+test("legacy runtime config files are migrated into SQLite", async (t) => {
   const { directory, configPath } = configFixture();
+  fs.writeFileSync(path.join(directory, "runtime-config.json"), `${JSON.stringify({ routing: { ambiguityMargin: 12 } })}\n`);
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
   const manager = new RuntimeConfigManager(configPath);
+  await manager.attachStore(store);
+
+  assert.equal(manager.describe().config.routing.ambiguityMargin, 12);
+  assert.equal(store.getRuntimeConfig().routing.ambiguityMargin, 12);
+  assert.equal(fs.existsSync(path.join(directory, "runtime-config.json")), false);
+  assert.equal(fs.existsSync(path.join(directory, "runtime-config.json.migrated")), true);
+});
+
+test("security api key auth toggle is editable and persisted", async (t) => {
+  const { store, manager } = await runtimeManagerFixture(t);
   const state = manager.describe();
 
   const updated = await manager.update({ security: { apiKeyAuthEnabled: true } }, state.revision);
   assert.equal(updated.config.security.apiKeyAuthEnabled, true);
 
-  const overrides = JSON.parse(fs.readFileSync(path.join(directory, "runtime-config.json"), "utf8"));
-  assert.equal(overrides.security.apiKeyAuthEnabled, true);
+  assert.equal(store.getRuntimeConfig().security.apiKeyAuthEnabled, true);
 });
 
 test("loads custom YAML task classes without exposing them as UI-editable config", () => {

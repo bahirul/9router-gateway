@@ -11,6 +11,7 @@ function json(value, fallback = null) {
 }
 
 const ADMIN_PASSWORD_KEY = "admin_password";
+const RUNTIME_CONFIG_KEY = "runtime_config";
 const DEFAULT_ADMIN_PASSWORD = "smart9router";
 
 function encodeAdminPassword(password) {
@@ -206,6 +207,21 @@ export class DecisionStore {
   setAdminPassword(password) {
     this.execute(() => this.db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`)
       .run(ADMIN_PASSWORD_KEY, encodeAdminPassword(password)));
+  }
+
+  getRuntimeConfig() {
+    if (!this.ready) return null;
+    const value = this.db.prepare(`SELECT value FROM meta WHERE key = ?`).get(RUNTIME_CONFIG_KEY)?.value;
+    return json(value, null);
+  }
+
+  setRuntimeConfig(config) {
+    this.execute(() => this.db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`)
+      .run(RUNTIME_CONFIG_KEY, JSON.stringify(config || {})));
+  }
+
+  clearRuntimeConfig() {
+    this.execute(() => this.db.prepare(`DELETE FROM meta WHERE key = ?`).run(RUNTIME_CONFIG_KEY));
   }
 
   listApiKeys() {

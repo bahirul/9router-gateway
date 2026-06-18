@@ -299,8 +299,6 @@ export function RoutingPage() {
   if (!state || !form) return <Loading />;
 
   function field(path, value) { setForm((current) => setNested(current, path, value)); setSaved(false); }
-  function locked(path) { return Boolean(state.locked[path]); }
-
   async function save() {
     try {
       const result = await api("/api/admin/config", {
@@ -308,11 +306,16 @@ export function RoutingPage() {
         body: JSON.stringify({
           expectedRevision: state.revision,
           patch: {
+            upstream: {
+              requestTimeoutMs: form.upstream.requestTimeoutMs,
+              strictModelValidation: form.upstream.strictModelValidation,
+            },
             routing: form.routing,
             classifier: {
               enabled: form.classifier.enabled,
               timeoutMs: form.classifier.timeoutMs,
               minimumConfidence: form.classifier.minimumConfidence,
+              localFilesOnly: form.classifier.localFilesOnly,
             },
             affinity: form.affinity,
             logging: {
@@ -334,11 +337,17 @@ export function RoutingPage() {
       <PageHeader title="Routing" description="Hot-applied policy settings for new prompt requests." action={<div className="flex items-center gap-3">{saved && <Badge tone="success">Saved</Badge>}<Button onClick={save}><Icon>save</Icon>Apply changes</Button></div>} />
       <ErrorBox error={error} />
       <div className="grid gap-5 xl:grid-cols-2">
+        <Card title="Upstream behavior" subtitle="Request handling and 9Router catalog validation.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberField label="Request timeout (ms)" value={form.upstream.requestTimeoutMs} onChange={(value) => field("upstream.requestTimeoutMs", value)} />
+            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Strict model validation</p><p className="text-xs text-text-muted">Fail closed when a target is missing from the 9Router catalog.</p></div><Toggle checked={form.upstream.strictModelValidation} onChange={(value) => field("upstream.strictModelValidation", value)} /></div>
+          </div>
+        </Card>
         <Card title="Target mapping" subtitle="Each tier points to an existing 9Router combo or model.">
           <div className="grid gap-4 sm:grid-cols-2">
             {Object.entries(form.routing.targets).map(([key, value]) => (
-              <Field key={key} label={key[0].toUpperCase() + key.slice(1)} hint={locked(`routing.targets.${key}`) ? `Locked by ${state.locked[`routing.targets.${key}`]}` : null}>
-                <Input list="catalog-targets" disabled={locked(`routing.targets.${key}`)} value={value} onChange={(event) => field(`routing.targets.${key}`, event.target.value)} />
+              <Field key={key} label={key[0].toUpperCase() + key.slice(1)}>
+                <Input list="catalog-targets" value={value} onChange={(event) => field(`routing.targets.${key}`, event.target.value)} />
               </Field>
             ))}
             <datalist id="catalog-targets">{catalog.map((model) => <option key={model} value={model} />)}</datalist>
@@ -372,13 +381,13 @@ export function RoutingPage() {
             <div>
               <p className="font-medium">Use semantic classification</p>
               <p className="text-xs text-text-muted">Only for prompts near a decision boundary.</p>
-              {locked("classifier.enabled") && <p className="mt-1 text-xs text-warning">Locked by {state.locked["classifier.enabled"]}</p>}
             </div>
-            <Toggle checked={form.classifier.enabled} disabled={locked("classifier.enabled")} onChange={(value) => field("classifier.enabled", value)} />
+            <Toggle checked={form.classifier.enabled} onChange={(value) => field("classifier.enabled", value)} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <NumberField label="Timeout (ms)" value={form.classifier.timeoutMs} onChange={(value) => field("classifier.timeoutMs", value)} />
-            <NumberField label="Minimum confidence" step="0.01" disabled={locked("classifier.minimumConfidence")} hint={locked("classifier.minimumConfidence") ? `Locked by ${state.locked["classifier.minimumConfidence"]}` : null} value={form.classifier.minimumConfidence} onChange={(value) => field("classifier.minimumConfidence", value)} />
+            <NumberField label="Minimum confidence" step="0.01" value={form.classifier.minimumConfidence} onChange={(value) => field("classifier.minimumConfidence", value)} />
+            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3 sm:col-span-2"><div><p className="text-sm font-medium">Use local model files only</p><p className="text-xs text-text-muted">Require cached classifier files instead of downloading missing model assets.</p></div><Toggle checked={form.classifier.localFilesOnly} onChange={(value) => field("classifier.localFilesOnly", value)} /></div>
           </div>
         </Card>
         <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">
@@ -386,7 +395,7 @@ export function RoutingPage() {
             <NumberField label="Affinity TTL (minutes)" value={Math.round(form.affinity.ttlMs / 60000)} onChange={(value) => field("affinity.ttlMs", value * 60000)} />
             <NumberField label="Maximum affinities" value={form.affinity.maxEntries} onChange={(value) => field("affinity.maxEntries", value)} />
             <NumberField label="History retention (days)" value={form.logging.retentionDays} onChange={(value) => field("logging.retentionDays", value)} />
-            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><Toggle checked={form.logging.rawPrompts} disabled={locked("logging.rawPrompts")} onChange={(value) => field("logging.rawPrompts", value)} /></div>
+            <div className="flex items-end justify-between rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><Toggle checked={form.logging.rawPrompts} onChange={(value) => field("logging.rawPrompts", value)} /></div>
           </div>
         </Card>
       </div>
@@ -641,7 +650,6 @@ export function ApiKeysPage() {
   if (!config) return <Loading />;
 
   const authEnabled = Boolean(config.config?.security?.apiKeyAuthEnabled);
-  const authLock = config.locked?.["security.apiKeyAuthEnabled"];
 
   async function updateApiKeyAuth(enabled) {
     const previous = config;
@@ -810,9 +818,8 @@ export function ApiKeysPage() {
             <div>
               <p className="text-lg font-medium">Require API key</p>
               <p className="mt-1 text-sm text-text-muted">Requests without a valid key will be rejected.</p>
-              {authLock && <p className="mt-1 text-xs text-warning">Locked by {authLock}</p>}
             </div>
-            <Toggle checked={authEnabled} disabled={toggleSaving || Boolean(authLock)} onChange={updateApiKeyAuth} />
+            <Toggle checked={authEnabled} disabled={toggleSaving} onChange={updateApiKeyAuth} />
           </div>
         </section>
         <section>
@@ -984,8 +991,8 @@ export function SystemPage() {
         </Card>
         <Card title="Configuration sources" subtitle={`Revision ${config.revision}`}>
           <div className="space-y-3 text-sm">
-            <div><p className="text-text-muted">Runtime override file</p><code className="break-all text-xs">{config.runtimePath || "In-memory test configuration"}</code></div>
-            <div><p className="mb-2 text-text-muted">Environment-locked fields</p>{Object.keys(config.locked).length ? <div className="space-y-1">{Object.entries(config.locked).map(([field, env]) => <div key={field} className="flex justify-between gap-3 rounded bg-bg px-2 py-1"><code>{field}</code><span className="text-text-muted">{env}</span></div>)}</div> : <p>No editable fields are locked.</p>}</div>
+            <div><p className="text-text-muted">Runtime override store</p><code className="break-all text-xs">{config.runtimeStore || config.runtimePath || "In-memory test configuration"}</code></div>
+            <div><p className="mb-2 text-text-muted">Editable configuration</p><p>Dashboard settings are stored in SQLite and are not locked by environment variables.</p></div>
             <div><p className="mb-2 text-text-muted">Active dashboard overrides</p><pre className="max-h-44 overflow-auto rounded bg-bg p-3 text-xs">{JSON.stringify(config.overrides, null, 2)}</pre></div>
           </div>
         </Card>
