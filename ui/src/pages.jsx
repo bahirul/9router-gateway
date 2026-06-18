@@ -977,6 +977,7 @@ export function SystemPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState(null);
+  const [endpointExample, setEndpointExample] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -1028,6 +1029,27 @@ export function SystemPage() {
   }
   function copy(value) { navigator.clipboard.writeText(value); setMessage("Copied to clipboard"); }
   const anthropicMessagesUrl = `${status.proxyBaseUrl}/messages`;
+  const endpointExamples = {
+    openai: {
+      title: "OpenAI-compatible config",
+      description: "Minimal client settings for OpenAI-compatible SDKs and tools.",
+      items: [
+        ["Base URL", status.proxyBaseUrl],
+        ["API key", "<your API key>"],
+        ["Model", "auto"],
+      ],
+    },
+    anthropic: {
+      title: "Claude/Anthropic config",
+      description: "Minimal client settings for Anthropic Messages-compatible clients.",
+      items: [
+        ["Base URL", status.proxyBaseUrl],
+        ["Messages endpoint", anthropicMessagesUrl],
+        ["API key", "<your API key>"],
+        ["Model", "auto"],
+      ],
+    },
+  };
   async function updatePassword() {
     if (!currentPassword) {
       setError("Current password is required");
@@ -1066,6 +1088,17 @@ export function SystemPage() {
       <ErrorBox error={error} />
       {message && <div className="mb-4 rounded-[10px] bg-success/10 px-4 py-3 text-sm text-success">{message}</div>}
       <Dialog open={Boolean(dialog)} title={dialog?.title} description={dialog?.description} confirmLabel={dialog?.confirmLabel} destructive={dialog?.destructive} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />
+      <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={() => setEndpointExample(null)} onConfirm={() => setEndpointExample(null)}>
+        <div className="space-y-3">
+          {endpointExample?.items.map(([label, value]) => (
+            <div key={label}>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-text-muted">{label}</p>
+              <code className="block break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{value}</code>
+            </div>
+          ))}
+          <p className="text-xs text-text-muted">Create an API key on the API Keys page if API-key enforcement is enabled.</p>
+        </div>
+      </Dialog>
       <div className="grid gap-5 xl:grid-cols-2">
         <Card title="Service status">
           <div className="space-y-3">
@@ -1082,11 +1115,11 @@ export function SystemPage() {
           <div className="space-y-3">
             <div>
               <p className="mb-2 text-text-muted">OpenAI-compatible base URL</p>
-              <div className="flex min-w-0 gap-2"><Input readOnly value={status.proxyBaseUrl} /><Button variant="secondary" className="shrink-0" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button></div>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={status.proxyBaseUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => setEndpointExample(endpointExamples.openai)}>Example</Button></div></div>
             </div>
             <div>
               <p className="mb-2 text-text-muted">Anthropic Messages endpoint</p>
-              <div className="flex min-w-0 gap-2"><Input readOnly value={anthropicMessagesUrl} /><Button variant="secondary" className="shrink-0" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button></div>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={anthropicMessagesUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => setEndpointExample(endpointExamples.anthropic)}>Example</Button></div></div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">{["auto","auto-fast","auto-quality"].map((model) => <Badge key={model} tone="primary">{model}</Badge>)}</div>
