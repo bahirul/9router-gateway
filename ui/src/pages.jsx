@@ -257,23 +257,26 @@ function HealthRow({ label, good, value }) {
 function Distribution({ title, data }) {
   const chartData = objectChart(data);
   const hasData = chartData.some((item) => Number(item.value) > 0);
-  const displayData = hasData ? chartData : [{ name: "No data yet", value: 0 }];
   const barFill = title === "Task classes" ? TASK_CLASS_COLOR : null;
   return (
     <Card title={title}>
       <div className="h-44">
-        <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
-          <BarChart data={displayData} layout="vertical" margin={{ left: hasData ? 8 : 0 }}>
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" width={hasData ? 80 : 1} tick={hasData} tickLine={hasData} stroke="var(--color-text-muted)" fontSize={11} />
-            {hasData && <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />}
-            <Bar dataKey="value" fill={barFill || "#E56A4A"} radius={[0, 6, 6, 0]}>
-              {!barFill && displayData.map((entry) => (
-                <Cell key={entry.name} fill={COMPLEXITY_COLORS[entry.name] || "#E56A4A"} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        {hasData ? (
+          <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
+            <BarChart data={chartData} layout="vertical" margin={{ left: 8 }}>
+              <XAxis type="number" hide />
+              <YAxis type="category" dataKey="name" width={80} stroke="var(--color-text-muted)" fontSize={11} />
+              <Tooltip contentStyle={{ background: "var(--color-surface)", borderColor: "var(--color-border)", borderRadius: 10 }} />
+              <Bar dataKey="value" fill={barFill || "#E56A4A"} radius={[0, 6, 6, 0]}>
+                {!barFill && chartData.map((entry) => (
+                  <Cell key={entry.name} fill={COMPLEXITY_COLORS[entry.name] || "#E56A4A"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="grid h-full place-items-center rounded-[12px] border border-dashed border-border-subtle text-sm text-text-muted">No data yet</div>
+        )}
       </div>
     </Card>
   );
