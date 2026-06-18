@@ -310,7 +310,8 @@ function addVirtualModels(payload) {
 }
 
 function inMemoryConfigManager(initialConfig) {
-  let config = validate(structuredClone(initialConfig));
+  const baseConfig = validate(structuredClone(initialConfig));
+  let config = baseConfig;
   let revision = "test-config";
   const listeners = new Set();
   return {
@@ -345,6 +346,9 @@ function inMemoryConfigManager(initialConfig) {
         error.status = 409;
         throw error;
       }
+      config = structuredClone(baseConfig);
+      revision = `${Date.now()}`;
+      for (const listener of listeners) await listener(config);
       return this.describe();
     },
   };

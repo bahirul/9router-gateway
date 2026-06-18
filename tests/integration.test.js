@@ -319,6 +319,63 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   assert.equal(decisionDetail.request.body.model, "auto");
   assert.match(decisionDetail.prompt, /Translate hello/);
 
+  const createdKey = await fetch(`${baseUrl}/api/admin/api-keys`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ name: "Reset test" }),
+  });
+  assert.equal(createdKey.status, 200);
+
+  const wrongReset = await fetch(`${baseUrl}/api/admin/database`, {
+    method: "DELETE",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ password: "wrong" }),
+  });
+  assert.equal(wrongReset.status, 401);
+
+  const resetDatabase = await fetch(`${baseUrl}/api/admin/database`, {
+    method: "DELETE",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ password: "smart9router" }),
+  });
+  assert.equal(resetDatabase.status, 200);
+  assert.equal((await resetDatabase.json()).reset, true);
+
+  const resetConfig = await fetch(`${baseUrl}/api/admin/config`, {
+    headers: { Cookie: cookie },
+  }).then((response) => response.json());
+  assert.equal(resetConfig.config.routing.ambiguityMargin, 8);
+  assert.ok(resetConfig.config.routing.taskClasses.general);
+
+  const resetDecisions = await fetch(`${baseUrl}/api/admin/decisions`, {
+    headers: { Cookie: cookie },
+  }).then((response) => response.json());
+  assert.equal(resetDecisions.items.length, 0);
+
+  const resetKeys = await fetch(`${baseUrl}/api/admin/api-keys`, {
+    headers: { Cookie: cookie },
+  }).then((response) => response.json());
+  assert.equal(resetKeys.items.length, 0);
+
+  const relogin = await fetch(`${baseUrl}/api/admin/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "smart9router" }),
+  });
+  assert.equal(relogin.status, 200);
+
   assert.equal(upstreamRequests.length, 7);
 });
 

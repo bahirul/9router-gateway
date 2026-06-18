@@ -1151,6 +1151,9 @@ export function SystemPage() {
   const [dialog, setDialog] = useState(null);
   const [endpointExample, setEndpointExample] = useState(null);
   const [endpointCopyMessage, setEndpointCopyMessage] = useState("");
+  const [databaseResetOpen, setDatabaseResetOpen] = useState(false);
+  const [databaseResetPassword, setDatabaseResetPassword] = useState("");
+  const [databaseResetError, setDatabaseResetError] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -1192,6 +1195,27 @@ export function SystemPage() {
         await load();
       },
     });
+  }
+  function openDatabaseReset() {
+    setDatabaseResetPassword("");
+    setDatabaseResetError("");
+    setDatabaseResetOpen(true);
+  }
+  function closeDatabaseReset() {
+    setDatabaseResetOpen(false);
+    setDatabaseResetPassword("");
+    setDatabaseResetError("");
+  }
+  async function resetDatabase() {
+    try {
+      await api("/api/admin/database", {
+        method: "DELETE",
+        body: JSON.stringify({ password: databaseResetPassword }),
+      });
+      closeDatabaseReset();
+      setMessage("Database reset complete");
+      await load();
+    } catch (failure) { setDatabaseResetError(failure.message); }
   }
   async function confirmDialog() {
     const current = dialog;
@@ -1272,6 +1296,21 @@ export function SystemPage() {
       <ErrorBox error={error} />
       {message && <div className="mb-4 rounded-[10px] bg-success/10 px-4 py-3 text-sm text-success">{message}</div>}
       <Dialog open={Boolean(dialog)} title={dialog?.title} description={dialog?.description} confirmLabel={dialog?.confirmLabel} destructive={dialog?.destructive} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />
+      <Dialog
+        open={databaseResetOpen}
+        title="Reset database?"
+        description="This deletes decisions, feedback, API keys, quotas, and dashboard settings. Your current admin password is preserved."
+        confirmLabel="Reset database"
+        destructive
+        confirmDisabled={!databaseResetPassword}
+        onCancel={closeDatabaseReset}
+        onConfirm={resetDatabase}
+      >
+        <Field label="Current admin password">
+          <Input type="password" autoFocus value={databaseResetPassword} onChange={(event) => { setDatabaseResetPassword(event.target.value); setDatabaseResetError(""); }} placeholder="Enter admin password" />
+        </Field>
+        {databaseResetError && <p className="mt-2 text-sm text-danger">{databaseResetError}</p>}
+      </Dialog>
       <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={closeEndpointExample} onConfirm={closeEndpointExample}>
         <div className="space-y-3">
           <div>
@@ -1336,6 +1375,7 @@ export function SystemPage() {
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Refresh model catalog</p><p className="text-xs text-text-muted">Re-check target models and combos in 9Router.</p></div><Button variant="secondary" className="shrink-0" onClick={refreshCatalog}>Refresh</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Purge decision history</p><p className="text-xs text-text-muted">Delete stored decisions and operator feedback from the database.</p></div><Button variant="danger" className="shrink-0" onClick={resetDecisionHistory}>Purge</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset runtime overrides</p><p className="text-xs text-text-muted">Return to config.yaml and environment values immediately.</p></div><Button variant="danger" className="shrink-0" onClick={resetOverrides}>Reset</Button></div>
+            <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset database</p><p className="text-xs text-text-muted">Delete SQLite decisions, API keys, quotas, and dashboard settings. Admin password is preserved.</p></div><Button variant="danger" className="shrink-0" onClick={openDatabaseReset}>Reset</Button></div>
           </div>
         </Card>
       </div>

@@ -187,6 +187,22 @@ export function createAdminApi(context) {
         return true;
       }
 
+      if (pathname === "/api/admin/database" && req.method === "DELETE") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (typeof body.password !== "string" || !store.verifyAdminPassword(body.password)) {
+          sendJson(res, 401, { error: "admin password is incorrect" });
+          return true;
+        }
+        if (!store.resetDatabase()) {
+          sendJson(res, 503, { error: store.status().error || "database reset failed" });
+          return true;
+        }
+        const result = await configManager.reset(configManager.describe().revision);
+        metrics.increment("smart_router_database_resets_total");
+        sendJson(res, 200, { reset: true, config: result });
+        return true;
+      }
+
       if (pathname === "/api/admin/api-keys" && req.method === "GET") {
         sessions.require(req, { csrf: false });
         sendJson(res, 200, { items: store.listApiKeys() });

@@ -159,6 +159,38 @@ test("enforces api key request quotas", async (t) => {
   assert.equal(usageRows.length, 0);
 });
 
+test("resets sqlite data while preserving admin password and import marker", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-reset-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  store.setAdminPassword("custom-password");
+  store.setRuntimeConfig({ routing: { ambiguityMargin: 9 } });
+  const key = store.createApiKey({ name: "Limited", quotaPeriod: "day", quotaLimit: 1 });
+  assert.equal(store.authorizeApiKey(key.secret, { consume: true }).ok, true);
+  store.decision({
+    requestId: "reset-request",
+    timestamp: new Date().toISOString(),
+    targetKey: "small",
+    task: "general",
+    complexity: "low",
+    mode: "active",
+    reasons: [],
+    features: {},
+  });
+  store.feedback({ requestId: "reset-request", rating: 1 });
+  store.db.prepare(`INSERT OR REPLACE INTO meta(key,value) VALUES('jsonlImported','existing-marker')`).run();
+
+  assert.equal(store.resetDatabase(), true);
+  assert.equal(store.verifyAdminPassword("custom-password"), true);
+  assert.equal(store.getRuntimeConfig(), null);
+  assert.equal(store.listApiKeys().length, 0);
+  assert.equal(store.list().items.length, 0);
+  assert.equal(store.db.prepare(`SELECT count(*) AS count FROM apiKeyUsage`).get().count, 0);
+  assert.equal(store.db.prepare(`SELECT value FROM meta WHERE key='jsonlImported'`).get().value, "existing-marker");
+});
+
 test("migrates existing stores to add request context", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-store-migrate-"));
   const { DatabaseSync } = await import("node:sqlite");

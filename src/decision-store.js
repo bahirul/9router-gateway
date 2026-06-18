@@ -470,6 +470,29 @@ export class DecisionStore {
     this.execute(() => this.db.exec(`DELETE FROM decisions; DELETE FROM feedback;`));
   }
 
+  resetDatabase() {
+    if (!this.ready) return false;
+    try {
+      const adminPassword = this.getAdminPasswordRecord();
+      const jsonlImported = this.db.prepare(`SELECT value FROM meta WHERE key='jsonlImported'`).get()?.value || new Date().toISOString();
+      this.db.exec(`
+        DELETE FROM feedback;
+        DELETE FROM decisions;
+        DELETE FROM apiKeyUsage;
+        DELETE FROM apiKeys;
+        DELETE FROM meta;
+      `);
+      if (adminPassword) this.db.prepare(`INSERT INTO meta(key,value) VALUES(?,?)`).run(ADMIN_PASSWORD_KEY, adminPassword);
+      this.db.prepare(`INSERT INTO meta(key,value) VALUES('jsonlImported',?)`).run(jsonlImported);
+      this.lastError = null;
+      return true;
+    } catch (error) {
+      this.lastError = error;
+      this.logger.warn?.(`[storage] reset failed: ${error.message}`);
+      return false;
+    }
+  }
+
   importJsonlOnce() {
     const marker = this.db.prepare(`SELECT value FROM meta WHERE key='jsonlImported'`).get();
     if (marker) return;
