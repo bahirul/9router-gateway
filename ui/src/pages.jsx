@@ -749,7 +749,7 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
           <div className="space-y-4">
             <div className="rounded-[10px] border border-border-subtle bg-bg p-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Judge model"><Select value={reviewOptions.judgeModel} onChange={(event) => setReviewOptions({ ...reviewOptions, judgeModel: event.target.value })}><option value="">Default smart-large</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
+                <Field label="Judge model"><Select value={reviewOptions.judgeModel} onChange={(event) => setReviewOptions({ ...reviewOptions, judgeModel: event.target.value })}><option value="">Default smart-small</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
                 <Field label="Min confidence"><Input type="number" step="0.05" min="0" max="1" value={reviewOptions.minConfidence} onChange={(event) => setReviewOptions({ ...reviewOptions, minConfidence: event.target.value })} /></Field>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3"><Button variant="secondary" onClick={reviewDecision} disabled={reviewLoading}><Icon>rate_review</Icon>{reviewLoading ? "Reviewing..." : "Review with model"}</Button>{reviewError && <span className="text-xs text-danger">{reviewError}</span>}</div>

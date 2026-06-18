@@ -125,8 +125,8 @@ export class DecisionCorrector {
   }
 
   defaultJudgeModel() {
-    if (this.catalog.ready && this.catalog.models.has("smart-large")) return "smart-large";
-    return this.catalog.ready ? [...this.catalog.models][0] || "smart-large" : "smart-large";
+    if (this.catalog.ready && this.catalog.models.has("smart-small")) return "smart-small";
+    return this.catalog.ready ? [...this.catalog.models][0] || "smart-small" : "smart-small";
   }
 
   validateJudgeModel(judgeModel) {
