@@ -60,6 +60,19 @@ function parseQuota(body) {
   return { quotaPeriod, quotaLimit: parsedLimit };
 }
 
+function parseForcedModel(value) {
+  if (value === undefined || value === null || value === "") return { forcedModel: null };
+  if (typeof value !== "string") return { error: "forcedModel must be a string or null" };
+  const forcedModel = value.trim();
+  if (!forcedModel) return { forcedModel: null };
+  return { forcedModel };
+}
+
+function validateForcedModel(forcedModel, catalog) {
+  if (!forcedModel || !catalog.ready || catalog.models.has(forcedModel)) return null;
+  return `forcedModel not found in 9Router catalog: ${forcedModel}`;
+}
+
 function validateTargets(config, catalog) {
   if (!config.upstream.strictModelValidation || !catalog.ready) return;
   const targets = new Set([
@@ -225,8 +238,18 @@ export function createAdminApi(context) {
           sendJson(res, 400, { error: quota.error });
           return true;
         }
+        const forced = parseForcedModel(body.forcedModel);
+        if (forced.error) {
+          sendJson(res, 400, { error: forced.error });
+          return true;
+        }
+        const forcedError = validateForcedModel(forced.forcedModel, catalog);
+        if (forcedError) {
+          sendJson(res, 400, { error: forcedError });
+          return true;
+        }
         const expiresAt = body.expiresAt === null || body.expiresAt === undefined ? null : String(body.expiresAt);
-        const created = store.createApiKey({ name: body.name.trim(), expiresAt, ...quota });
+        const created = store.createApiKey({ name: body.name.trim(), expiresAt, ...quota, forcedModel: forced.forcedModel });
         metrics.increment("smart_router_api_keys_total", { result: "created" });
         sendJson(res, 200, created);
         return true;
@@ -253,6 +276,19 @@ export function createAdminApi(context) {
             return true;
           }
           updated = store.setApiKeyQuota(id, quota.quotaPeriod, quota.quotaLimit);
+        }
+        if (body.forcedModel !== undefined) {
+          const forced = parseForcedModel(body.forcedModel);
+          if (forced.error) {
+            sendJson(res, 400, { error: forced.error });
+            return true;
+          }
+          const forcedError = validateForcedModel(forced.forcedModel, catalog);
+          if (forcedError) {
+            sendJson(res, 400, { error: forcedError });
+            return true;
+          }
+          updated = store.setApiKeyForcedModel(id, forced.forcedModel);
         }
         metrics.increment("smart_router_api_keys_total", { result: "updated" });
         sendJson(res, 200, updated);

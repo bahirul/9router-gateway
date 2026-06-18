@@ -128,7 +128,7 @@ Authorization: Bearer sk-...
 x-api-key: sk-...
 ```
 
-When enforcement is enabled, requests under `/v1/` are rejected without a valid active key, except the operator routes under `/v1/router/`. Keys that exceed their daily or monthly request quota receive HTTP `429`.
+When enforcement is enabled, requests under `/v1/` are rejected without a valid active key, except the operator routes under `/v1/router/`. Keys that exceed their daily or monthly request quota receive HTTP `429`. A key can also be limited to one dispatch model, useful for sharing constrained access while still logging virtual-model routing as shadow telemetry.
 
 Keys are hashed for request verification. Newly created keys are also stored in SQLite so the authenticated dashboard can show and copy them after a restart. Keys created by older versions may remain valid but display as unavailable because their original value cannot be recovered from the hash.
 
@@ -140,7 +140,7 @@ The dashboard includes:
 - Routing targets, thresholds, profile bias, shadow mode, classifier, affinity, logging, and retention controls
 - Searchable decision history with request context, outcomes, signals, and operator feedback
 - A dry-run playground for OpenAI Chat, OpenAI Responses, and Anthropic Messages requests
-- Named API-key management and global API-key enforcement
+- Named API-key management, quotas, per-key model limits, and global API-key enforcement
 - Model-catalog refresh, effective configuration sources, password management, decision reset, and runtime override reset
 
 Dashboard login creates an in-memory `HttpOnly`, `SameSite=Strict` session. Mutations require a CSRF token, and failed login attempts are rate-limited by client address.

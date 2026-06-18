@@ -168,6 +168,7 @@ export class DecisionStore {
           revokedAt TEXT,
           quotaPeriod TEXT,
           quotaLimit INTEGER,
+          forcedModel TEXT,
           createdAt TEXT NOT NULL,
           updatedAt TEXT NOT NULL
         );
@@ -228,6 +229,9 @@ export class DecisionStore {
     if (apiKeyColumns.size && !apiKeyColumns.has("quotaLimit")) {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN quotaLimit INTEGER`);
     }
+    if (apiKeyColumns.size && !apiKeyColumns.has("forcedModel")) {
+      this.db.exec(`ALTER TABLE apiKeys ADD COLUMN forcedModel TEXT`);
+    }
     this.db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_secret_lookup ON apiKeys(secretLookup) WHERE secretLookup IS NOT NULL;
       CREATE TABLE IF NOT EXISTS apiKeyUsage (
@@ -282,23 +286,23 @@ export class DecisionStore {
     if (!this.ready) return [];
     const now = new Date();
     return this.db.prepare(`
-      SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt
+      SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt
       FROM apiKeys
       ORDER BY createdAt DESC
     `).all().map((row) => this.apiKeyRecord(row, now));
   }
 
-  createApiKey({ name, expiresAt = null, quotaPeriod = null, quotaLimit = null }) {
+  createApiKey({ name, expiresAt = null, quotaPeriod = null, quotaLimit = null, forcedModel = null }) {
     const now = new Date().toISOString();
     const id = generateApiKeyId();
     const secret = generateApiKeySecret();
     const displayPrefix = `${secret.slice(0, 10)}...`;
     const quota = normalizeQuota({ quotaPeriod, quotaLimit });
     this.execute(() => this.db.prepare(`
-      INSERT INTO apiKeys(id,name,secretHash,secretLookup,secret,displayPrefix,expiresAt,active,revokedAt,quotaPeriod,quotaLimit,createdAt,updatedAt)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(id, name, encodeApiKeySecret(secret), apiKeyLookup(secret), secret, displayPrefix, expiresAt, 1, null, quota.quotaPeriod, quota.quotaLimit, now, now));
-    return this.apiKeyRecord({ id, name, displayPrefix, expiresAt, active: 1, ...quota, createdAt: now, updatedAt: now, secret }, new Date(now));
+      INSERT INTO apiKeys(id,name,secretHash,secretLookup,secret,displayPrefix,expiresAt,active,revokedAt,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(id, name, encodeApiKeySecret(secret), apiKeyLookup(secret), secret, displayPrefix, expiresAt, 1, null, quota.quotaPeriod, quota.quotaLimit, forcedModel, now, now));
+    return this.apiKeyRecord({ id, name, displayPrefix, expiresAt, active: 1, ...quota, forcedModel, createdAt: now, updatedAt: now, secret }, new Date(now));
   }
 
   setApiKeyActive(id, active) {
@@ -316,7 +320,7 @@ export class DecisionStore {
 
   getApiKey(id) {
     if (!this.ready) return null;
-    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
+    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
     if (!row) return null;
     return this.apiKeyRecord(row);
   }
@@ -327,6 +331,15 @@ export class DecisionStore {
     this.execute(() => this.db.prepare(`
       UPDATE apiKeys SET quotaPeriod=?, quotaLimit=?, updatedAt=? WHERE id=?
     `).run(quota.quotaPeriod, quota.quotaLimit, now, id));
+    return this.getApiKey(id);
+  }
+
+  setApiKeyForcedModel(id, forcedModel) {
+    const now = new Date().toISOString();
+    const normalized = forcedModel ? String(forcedModel).trim() : null;
+    this.execute(() => this.db.prepare(`
+      UPDATE apiKeys SET forcedModel=?, updatedAt=? WHERE id=?
+    `).run(normalized || null, now, id));
     return this.getApiKey(id);
   }
 
@@ -344,6 +357,7 @@ export class DecisionStore {
       active: Boolean(row.active),
       quotaPeriod: row.quotaPeriod || null,
       quotaLimit,
+      forcedModel: row.forcedModel || null,
       quotaUsed,
       quotaRemaining: quotaLimit == null ? null : Math.max(0, quotaLimit - quotaUsed),
       quotaPeriodKey: periodKey,
@@ -357,7 +371,7 @@ export class DecisionStore {
 
   authorizeApiKey(candidate, { consume = false, now = new Date() } = {}) {
     if (!this.ready || !candidate) return { ok: false, reason: "missing" };
-    const selectColumns = `id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt`;
+    const selectColumns = `id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt`;
     const lookup = apiKeyLookup(candidate);
     let row = this.db.prepare(`
       SELECT ${selectColumns}
@@ -367,7 +381,7 @@ export class DecisionStore {
     if (row && !verifySecret(candidate, row.secretHash)) return { ok: false, reason: "invalid" };
     if (!row) {
       const rows = this.db.prepare(`
-      SELECT id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,createdAt,updatedAt
+      SELECT ${selectColumns}
       FROM apiKeys
       WHERE secretLookup IS NULL
     `).all();

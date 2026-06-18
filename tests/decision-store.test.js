@@ -102,6 +102,7 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.match(created.displayPrefix, /^sk-/);
   assert.equal(created.quotaPeriod, null);
   assert.equal(created.quotaLimit, null);
+  assert.equal(created.forcedModel, null);
   assert.equal(created.quotaUsed, 0);
   assert.equal(store.listApiKeys()[0].secret, created.secret);
   assert.equal(store.verifyApiKey(created.secret), true);
@@ -117,6 +118,10 @@ test("manages api keys, expirations, and verification", async (t) => {
   const enabled = store.setApiKeyActive(created.id, true);
   assert.equal(enabled.status, "active");
   assert.equal(store.verifyApiKey(created.secret), true);
+
+  const forced = store.setApiKeyForcedModel(created.id, "model-a");
+  assert.equal(forced.forcedModel, "model-a");
+  assert.equal(store.authorizeApiKey(created.secret).key.forcedModel, "model-a");
 
   const expired = store.createApiKey({ name: "Expired", expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.equal(expired.name, "Expired");
@@ -232,6 +237,7 @@ test("migrates existing stores to add request context", async (t) => {
   assert.ok(apiKeyColumns.includes("secretLookup"));
   assert.ok(apiKeyColumns.includes("quotaPeriod"));
   assert.ok(apiKeyColumns.includes("quotaLimit"));
+  assert.ok(apiKeyColumns.includes("forcedModel"));
   const indexes = store.db.prepare(`PRAGMA index_list(apiKeys)`).all().map((index) => index.name);
   assert.ok(indexes.includes("idx_api_keys_secret_lookup"));
 });

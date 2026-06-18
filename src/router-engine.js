@@ -23,7 +23,7 @@ export class RouterEngine {
     return Boolean(this.config.routing.profiles[model]);
   }
 
-  async decide({ pathname, body, headers = {}, explainOnly = false }) {
+  async decide({ pathname, body, headers = {}, explainOnly = false, forcedModel = null }) {
     const normalized = normalizeRequest(pathname, body);
     if (!this.isVirtualModel(normalized.model)) {
       return { passthrough: true, normalized };
@@ -51,10 +51,13 @@ export class RouterEngine {
     const sessionId = extractSessionId(body, normalized, headers);
     decision = this.affinity.apply(sessionId, decision, Date.now(), !explainOnly);
 
-    const fallback = this.config.routing.targets.medium;
-    const dispatchCandidate = this.config.routing.shadowMode
+    const forcedDispatch = forcedModel ? String(forcedModel).trim() : null;
+    if (forcedDispatch) decision = { ...decision, mode: "key_shadow", keyForcedModel: forcedDispatch };
+
+    const fallback = forcedDispatch ? null : this.config.routing.targets.medium;
+    const dispatchCandidate = forcedDispatch || (this.config.routing.shadowMode
       ? this.config.routing.shadowTarget
-      : decision.target;
+      : decision.target);
     const validatedTarget = this.catalog.resolve(dispatchCandidate, fallback);
     if (validatedTarget) {
       decision = {
@@ -66,7 +69,9 @@ export class RouterEngine {
     } else if (this.config.upstream.strictModelValidation) {
       const error = this.catalog.lastError
         ? `9Router model catalog unavailable: ${this.catalog.lastError.message}`
-        : `Neither ${dispatchCandidate} nor fallback ${fallback} exists in 9Router`;
+        : forcedDispatch
+          ? `Forced model ${dispatchCandidate} does not exist in 9Router`
+          : `Neither ${dispatchCandidate} nor fallback ${fallback} exists in 9Router`;
       return { error, status: 503, normalized, features, decision };
     } else {
       decision = { ...decision, dispatchTarget: dispatchCandidate, catalogFallback: false };

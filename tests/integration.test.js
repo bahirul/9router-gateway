@@ -326,9 +326,10 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
       "Content-Type": "application/json",
       "x-csrf-token": session.csrfToken,
     },
-    body: JSON.stringify({ name: "Reset test" }),
+    body: JSON.stringify({ name: "Reset test", forcedModel: "smart-small" }),
   });
   assert.equal(createdKey.status, 200);
+  assert.equal((await createdKey.json()).forcedModel, "smart-small");
 
   const wrongReset = await fetch(`${baseUrl}/api/admin/database`, {
     method: "DELETE",
@@ -380,8 +381,18 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
 });
 
 test("api keys gate routed requests when enabled", async (t) => {
+  const upstreamBodies = [];
   const upstream = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
+    if (req.method !== "GET") {
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        upstreamBodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        res.end(JSON.stringify({ model: upstreamBodies.at(-1).model, ok: true }));
+      });
+      return;
+    }
     res.end(JSON.stringify({ object: "list", data: [{ id: "model-a", object: "model" }] }));
   });
   const upstreamPort = await listen(upstream);
@@ -399,6 +410,7 @@ test("api keys gate routed requests when enabled", async (t) => {
   await app.storageReady;
   const created = app.decisionStore.createApiKey({ name: "client-key" });
   const limited = app.decisionStore.createApiKey({ name: "limited-key", quotaPeriod: "day", quotaLimit: 1 });
+  const forced = app.decisionStore.createApiKey({ name: "friend-key", forcedModel: "model-a" });
   const sidecarPort = await listen(app.server);
   t.after(async () => {
     await close(app.server);
@@ -421,6 +433,33 @@ test("api keys gate routed requests when enabled", async (t) => {
     app.decisionStore.db.prepare(`SELECT COUNT(*) AS total FROM apiKeyUsage`).get().total,
     0,
   );
+
+  const forcedModels = await fetch(`${baseUrl}/v1/models`, {
+    headers: { "x-api-key": forced.secret },
+  });
+  assert.equal(forcedModels.status, 200);
+  assert.deepEqual((await forcedModels.json()).data.map((model) => model.id).sort(), ["auto", "auto-fast", "auto-quality", "model-a"].sort());
+
+  const forcedExplicit = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "x-api-key": forced.secret, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "explicit/model", messages: [{ role: "user", content: "hello" }] }),
+  });
+  assert.equal(forcedExplicit.status, 200);
+  assert.equal(upstreamBodies.at(-1).model, "model-a");
+  assert.equal(app.decisionStore.list().items.length, 0);
+
+  const forcedAuto = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "x-api-key": forced.secret, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "Plan a migration" }] }),
+  });
+  assert.equal(forcedAuto.status, 200);
+  assert.equal(forcedAuto.headers.get("x-smart-router-dispatch-target"), "model-a");
+  assert.equal(upstreamBodies.at(-1).model, "model-a");
+  const forcedDecision = app.decisionStore.list().items[0];
+  assert.equal(forcedDecision.mode, "key_shadow");
+  assert.equal(forcedDecision.requestedModel, "auto");
 
   const malformed = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",

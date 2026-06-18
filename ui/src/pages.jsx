@@ -806,16 +806,22 @@ function apiKeyQuotaText(key) {
   return `${key.quotaUsed || 0} / ${key.quotaLimit} ${label}`;
 }
 
+function apiKeyModelLimitText(key) {
+  return key.forcedModel ? `Model limited to ${key.forcedModel}` : "All models allowed";
+}
+
 function apiKeyQuotaDraft(key) {
   return {
     quotaPeriod: key.quotaPeriod || "none",
     quotaLimit: key.quotaLimit || 100,
+    forcedModel: key.forcedModel || "",
   };
 }
 
 export function ApiKeysPage() {
   const [config, setConfig] = useState(null);
   const [apiKeys, setApiKeys] = useState([]);
+  const [catalogModels, setCatalogModels] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState(null);
@@ -827,6 +833,7 @@ export function ApiKeysPage() {
   const [keyExpiry, setKeyExpiry] = useState("never");
   const [keyQuotaPeriod, setKeyQuotaPeriod] = useState("none");
   const [keyQuotaLimit, setKeyQuotaLimit] = useState(100);
+  const [keyForcedModel, setKeyForcedModel] = useState("");
   const [createdKey, setCreatedKey] = useState(null);
   const [revealedKeys, setRevealedKeys] = useState({});
   const [quotaDrafts, setQuotaDrafts] = useState({});
@@ -838,12 +845,14 @@ export function ApiKeysPage() {
 
   async function load() {
     try {
-      const [nextConfig, nextKeys] = await Promise.all([
+      const [nextConfig, nextKeys, nextCatalog] = await Promise.all([
         api("/api/admin/config"),
         api("/api/admin/api-keys"),
+        api("/api/admin/catalog"),
       ]);
       setConfig(nextConfig);
       applyKeys(nextKeys.items || []);
+      setCatalogModels(nextCatalog.models || []);
       setError("");
     } catch (failure) {
       setError(failure.message);
@@ -895,6 +904,7 @@ export function ApiKeysPage() {
           expiresAt: expiryFromChoice(keyExpiry),
           quotaPeriod: keyQuotaPeriod === "none" ? null : keyQuotaPeriod,
           quotaLimit: keyQuotaPeriod === "none" ? null : keyQuotaLimit,
+          forcedModel: keyForcedModel.trim() || null,
         }),
       });
       setCreateOpen(false);
@@ -903,6 +913,7 @@ export function ApiKeysPage() {
       setKeyExpiry("never");
       setKeyQuotaPeriod("none");
       setKeyQuotaLimit(100);
+      setKeyForcedModel("");
       setMessage(`API key created: ${result.name}`);
       const nextKeys = await api("/api/admin/api-keys");
       applyKeys(nextKeys.items || []);
@@ -948,11 +959,12 @@ export function ApiKeysPage() {
         body: JSON.stringify({
           quotaPeriod: draft.quotaPeriod === "none" ? null : draft.quotaPeriod,
           quotaLimit: draft.quotaPeriod === "none" ? null : Number(draft.quotaLimit),
+          forcedModel: String(draft.forcedModel || "").trim() || null,
         }),
       });
       setApiKeys((items) => items.map((item) => item.id === key.id ? result : item));
       setQuotaDrafts((current) => ({ ...current, [key.id]: apiKeyQuotaDraft(result) }));
-      setMessage(`${key.name} quota updated`);
+      setMessage(`${key.name} limits updated`);
     } catch (failure) {
       setApiKeys(previous);
       setError(failure.message);
@@ -1031,6 +1043,9 @@ export function ApiKeysPage() {
               {API_KEY_EXPIRY_CHOICES.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
             </Select>
           </Field>
+          <Field label="Model limit" hint="Optional. All requests with this key dispatch to this model.">
+            <Input list="api-key-models" value={keyForcedModel} onChange={(event) => setKeyForcedModel(event.target.value)} placeholder="No model limit" />
+          </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Request quota">
               <Select value={keyQuotaPeriod} onChange={(event) => setKeyQuotaPeriod(event.target.value)}>
@@ -1045,6 +1060,7 @@ export function ApiKeysPage() {
           </div>
         </div>
       </Dialog>
+      <datalist id="api-key-models">{catalogModels.map((model) => <option key={model} value={model} />)}</datalist>
       <Dialog
         open={Boolean(createdKey)}
         title="API key created"
@@ -1082,8 +1098,9 @@ export function ApiKeysPage() {
                   {key.status === "inactive" && <span className="text-warning">Disabled</span>}
                   {key.status === "limited" && <span className="text-warning">Quota reached</span>}
                   <span>{apiKeyQuotaText(key)}</span>
+                  <span>{apiKeyModelLimitText(key)}</span>
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
+                <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)_auto]">
                   <Select
                     value={(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaPeriod}
                     onChange={(event) => setQuotaDrafts((current) => ({
@@ -1106,7 +1123,17 @@ export function ApiKeysPage() {
                       }))}
                     />
                   )}
-                  <Button variant="secondary" disabled={keySaving === key.id} onClick={() => updateKeyQuota(key)}>Save quota</Button>
+                  {(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaPeriod === "none" && <div className="hidden lg:block" />}
+                  <Input
+                    list="api-key-models"
+                    value={(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).forcedModel}
+                    onChange={(event) => setQuotaDrafts((current) => ({
+                      ...current,
+                      [key.id]: { ...(current[key.id] || apiKeyQuotaDraft(key)), forcedModel: event.target.value },
+                    }))}
+                    placeholder="No model limit"
+                  />
+                  <Button variant="secondary" disabled={keySaving === key.id} onClick={() => updateKeyQuota(key)}>Save limits</Button>
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-3">

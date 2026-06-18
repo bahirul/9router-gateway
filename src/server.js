@@ -112,6 +112,10 @@ function apiKeyNeedsQuotaConsume(authorization) {
   return Boolean(authorization?.key?.quotaPeriod && authorization.key.quotaLimit != null);
 }
 
+function apiKeyForcedModel(authorization) {
+  return authorization?.key?.forcedModel || null;
+}
+
 function routingHeaders(decisionResult) {
   if (!decisionResult || decisionResult.passthrough || decisionResult.error) return {};
   const { requestId, decision } = decisionResult;
@@ -309,6 +313,12 @@ function addVirtualModels(payload) {
   return { ...payload, object: payload.object || "list", data };
 }
 
+function filterModelsForApiKey(payload, forcedModel) {
+  if (!forcedModel) return payload;
+  const allowed = new Set(["auto", "auto-fast", "auto-quality", forcedModel]);
+  return { ...payload, data: (payload.data || []).filter((model) => allowed.has(model.id)) };
+}
+
 function inMemoryConfigManager(initialConfig) {
   const baseConfig = validate(structuredClone(initialConfig));
   let config = baseConfig;
@@ -459,6 +469,7 @@ export function createSmartRouter({
           return rejectApiKeyAuthorization(res, apiKeyAuthorization);
         }
       }
+      const forcedModel = apiKeyForcedModel(apiKeyAuthorization);
 
       if (req.method === "POST" && pathname === "/v1/router/explain") {
         if (!adminAuthorized(req, decisionStore)) {
@@ -520,7 +531,7 @@ export function createSmartRouter({
           res.writeHead(upstream.status, copyResponseHeaders(upstream));
           return res.end(raw);
         }
-        const payload = addVirtualModels(await upstream.json());
+        const payload = filterModelsForApiKey(addVirtualModels(await upstream.json()), forcedModel);
         return jsonResponse(res, 200, payload);
       }
 
@@ -539,6 +550,7 @@ export function createSmartRouter({
           pathname,
           body,
           headers: requestHeaders(req),
+          forcedModel,
         });
         if (routingResult.error) {
           return jsonResponse(res, routingResult.status, {
@@ -548,6 +560,9 @@ export function createSmartRouter({
         }
         if (!routingResult.passthrough) {
           body.model = routingResult.decision.dispatchTarget;
+          outgoingBody = Buffer.from(JSON.stringify(body));
+        } else if (forcedModel) {
+          body.model = forcedModel;
           outgoingBody = Buffer.from(JSON.stringify(body));
         }
       }
