@@ -1290,7 +1290,7 @@ export function SystemPage() {
   function closeEndpointExample() { setEndpointCopyMessage(""); setEndpointExample(null); }
   async function copyEndpointExample() {
     try {
-      await navigator.clipboard.writeText(endpointExample?.body || "");
+      await navigator.clipboard.writeText(endpointExampleBody);
       setEndpointCopyMessage("Copied to clipboard");
     } catch (failure) { setEndpointCopyMessage(failure.message || "Copy failed"); }
   }
@@ -1300,8 +1300,19 @@ export function SystemPage() {
     openai: {
       title: "Codex CLI config",
       description: "Minimal ~/.codex/config.toml + ~/.codex/auth.json for this gateway.",
-      language: "text",
-      body: `~/.codex/config.toml\n# 9Router Configuration for Codex CLI\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"\n\n~/.codex/auth.json\n${JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "<your API key>" }, null, 2)}`,
+      language: "toml + json",
+      sections: [
+        {
+          label: "~/.codex/config.toml",
+          language: "toml",
+          body: `# 9Router Configuration for Codex CLI\nmodel = "auto"\nmodel_provider = "smartrouter"\n\n[model_providers.smartrouter]\nname = "smartrouter"\nbase_url = "${status.proxyBaseUrl}"\nwire_api = "responses"`,
+        },
+        {
+          label: "~/.codex/auth.json",
+          language: "json",
+          body: JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "<your API key>" }, null, 2),
+        },
+      ],
     },
     anthropic: {
       title: "Claude Code settings.json",
@@ -1319,6 +1330,9 @@ export function SystemPage() {
       }, null, 2),
     },
   };
+  const endpointExampleBody = endpointExample?.sections
+    ? endpointExample.sections.map((section) => `${section.label}\n${section.body}`).join("\n\n")
+    : endpointExample?.body || "";
   async function updatePassword() {
     if (!currentPassword) {
       setError("Current password is required");
@@ -1382,7 +1396,18 @@ export function SystemPage() {
                 <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={copyEndpointExample}><Icon>content_copy</Icon>Copy</Button>
               </div>
             </div>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{endpointExample?.body}</pre>
+            {endpointExample?.sections ? (
+              <div className="space-y-3">
+                {endpointExample.sections.map((section) => (
+                  <div key={section.label}>
+                    <p className="mb-1 text-xs font-medium text-text-muted">{section.label}</p>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{section.body}</pre>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{endpointExample?.body}</pre>
+            )}
           </div>
           <p className="text-xs text-text-muted">Create an API key on the API Keys page if API-key enforcement is enabled, then use it for the placeholder token or env key.</p>
         </div>
