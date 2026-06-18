@@ -186,7 +186,6 @@ export class DecisionStore {
         CREATE INDEX IF NOT EXISTS idx_decisions_complexity ON decisions(complexity);
         CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status);
         CREATE INDEX IF NOT EXISTS idx_decisions_mode ON decisions(mode);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_secret_lookup ON apiKeys(secretLookup) WHERE secretLookup IS NOT NULL;
       `);
       this.migrate();
       this.ensureAdminPassword();

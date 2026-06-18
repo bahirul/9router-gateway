@@ -172,6 +172,18 @@ test("migrates existing stores to add request context", async (t) => {
       status INTEGER,latencyMs INTEGER,error TEXT,tokens TEXT
     );
     CREATE TABLE feedback (requestId TEXT PRIMARY KEY,rating INTEGER NOT NULL,expectedTarget TEXT,note TEXT,updatedAt TEXT NOT NULL);
+    CREATE TABLE apiKeys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      secretHash TEXT NOT NULL,
+      secret TEXT,
+      displayPrefix TEXT,
+      expiresAt TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      revokedAt TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   `);
   db.close();
@@ -186,6 +198,10 @@ test("migrates existing stores to add request context", async (t) => {
   assert.ok(apiKeyColumns.includes("secret"));
   assert.ok(apiKeyColumns.includes("active"));
   assert.ok(apiKeyColumns.includes("secretLookup"));
+  assert.ok(apiKeyColumns.includes("quotaPeriod"));
+  assert.ok(apiKeyColumns.includes("quotaLimit"));
+  const indexes = store.db.prepare(`PRAGMA index_list(apiKeys)`).all().map((index) => index.name);
+  assert.ok(indexes.includes("idx_api_keys_secret_lookup"));
 });
 
 test("request snapshots redact sensitive fields and cap large bodies", () => {
