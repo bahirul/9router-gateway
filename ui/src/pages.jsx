@@ -314,6 +314,30 @@ export function RoutingPage() {
   if (!state || !form) return <Loading />;
 
   function field(path, value) { setForm((current) => setNested(current, path, value)); setSaved(false); }
+  function setTaskClasses(taskClasses) { field("routing.taskClasses", taskClasses); }
+  function updateTaskClass(id, patch) {
+    setTaskClasses({
+      ...(form.routing.taskClasses || {}),
+      [id]: { ...(form.routing.taskClasses?.[id] || {}), ...patch },
+    });
+  }
+  function addTaskClass(source = null) {
+    const requested = window.prompt("Task class id (lowercase letters, numbers, _ or -)", source ? `${source}_copy` : "custom");
+    const id = String(requested || "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (!id) return;
+    if (form.routing.taskClasses?.[id]) { setError(`Task class ${id} already exists`); return; }
+    const base = source && form.routing.taskClasses?.[source]
+      ? structuredClone(form.routing.taskClasses[source])
+      : { task: true, semanticLabel: id.replace(/[-_]/g, " "), semanticScore: 45, priority: 0, scoreDelta: 0, patterns: [] };
+    setTaskClasses({ ...(form.routing.taskClasses || {}), [id]: base });
+    setError("");
+  }
+  function deleteTaskClass(id) {
+    if (id === "general") return;
+    const next = { ...(form.routing.taskClasses || {}) };
+    delete next[id];
+    setTaskClasses(next);
+  }
   async function save() {
     try {
       const result = await api("/api/admin/config", {
@@ -390,6 +414,51 @@ export function RoutingPage() {
         <Card title="Shadow mode" subtitle="Record predictions while dispatching every virtual request to one target.">
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable shadow mode</p><p className="text-xs text-text-muted">Useful for policy calibration before active routing.</p></div><div className="shrink-0"><Toggle checked={form.routing.shadowMode} onChange={(value) => field("routing.shadowMode", value)} /></div></div>
           <div className="mt-4"><Field label="Shadow dispatch target"><Input list="catalog-targets" value={form.routing.shadowTarget} onChange={(event) => field("routing.shadowTarget", event.target.value)} /></Field></div>
+        </Card>
+        <Card
+          title="Task classes"
+          subtitle="Dashboard-managed classifier labels, regex signals, scoring, and hard floors."
+          className="xl:col-span-2"
+          action={<Button variant="secondary" onClick={() => addTaskClass()}><Icon>add</Icon>Add class</Button>}
+        >
+          <div className="space-y-4">
+            {Object.entries(form.routing.taskClasses || {}).map(([id, taskClass]) => {
+              const isGeneral = id === "general";
+              return (
+                <div key={id} className="rounded-[12px] border border-border bg-bg p-4">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium">{id}</p>
+                      <p className="text-xs text-text-muted">{taskClass.task === false ? "Signal-only class" : "Reported task class"}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={() => addTaskClass(id)}>Duplicate</Button>
+                      <Button variant="ghost" className="min-h-8 px-2 py-1 text-xs text-danger hover:text-danger" disabled={isGeneral} onClick={() => deleteTaskClass(id)}>Delete</Button>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border-subtle bg-surface p-3"><div className="min-w-0"><p className="text-sm font-medium">Report as task</p><p className="text-xs text-text-muted">Disable for scoring-only signals.</p></div><div className="shrink-0"><Toggle checked={taskClass.task !== false} disabled={isGeneral} onChange={(value) => updateTaskClass(id, { task: value })} /></div></div>
+                    <NumberField label="Semantic score" value={taskClass.semanticScore ?? 45} onChange={(value) => updateTaskClass(id, { semanticScore: value })} />
+                    <NumberField label="Priority" value={taskClass.priority ?? 0} onChange={(value) => updateTaskClass(id, { priority: value })} />
+                    <NumberField label="Score delta" value={taskClass.scoreDelta ?? 0} onChange={(value) => updateTaskClass(id, { scoreDelta: value })} />
+                    <Field label="Semantic label">
+                      <Input value={taskClass.semanticLabel || ""} disabled={taskClass.task === false} onChange={(event) => updateTaskClass(id, { semanticLabel: event.target.value })} />
+                    </Field>
+                    <Field label="Hard floor">
+                      <Select value={taskClass.hardFloor || ""} onChange={(event) => updateTaskClass(id, { hardFloor: event.target.value || null })}>
+                        <option value="">None</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </Select>
+                    </Field>
+                    <Field label="Regex patterns" hint="One JavaScript regex per line.">
+                      <textarea className="min-h-28 w-full rounded-[10px] border border-border bg-bg px-3 py-2 text-sm text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15 sm:col-span-2" value={(taskClass.patterns || []).join("\n")} onChange={(event) => updateTaskClass(id, { patterns: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Card>
         <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${form.classifier.revision.slice(0, 8)}`}>
           <div className="mb-4 flex items-start justify-between gap-3">

@@ -58,7 +58,8 @@ test("persists revisioned UI overrides in SQLite and can reset them", async (t) 
 
   const reset = await manager.reset(updated.revision);
   assert.equal(reset.config.routing.ambiguityMargin, 8);
-  assert.equal(store.getRuntimeConfig(), null);
+  assert.equal(store.getRuntimeConfig().routing.ambiguityMargin, undefined);
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.general.semanticLabel, "general question");
 });
 
 test("kept environment variables still configure bootstrap settings", async () => {
@@ -119,6 +120,7 @@ test("legacy runtime config files are migrated into SQLite", async (t) => {
 
   assert.equal(manager.describe().config.routing.ambiguityMargin, 12);
   assert.equal(store.getRuntimeConfig().routing.ambiguityMargin, 12);
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.general.semanticLabel, "general question");
   assert.equal(fs.existsSync(path.join(directory, "runtime-config.json")), false);
   assert.equal(fs.existsSync(path.join(directory, "runtime-config.json.migrated")), true);
 });
@@ -133,7 +135,30 @@ test("security api key auth toggle is editable and persisted", async (t) => {
   assert.equal(store.getRuntimeConfig().security.apiKeyAuthEnabled, true);
 });
 
-test("loads custom YAML task classes without exposing them as UI-editable config", () => {
+test("seeds and edits task classes in SQLite runtime config", async (t) => {
+  const { store, manager } = await runtimeManagerFixture(t);
+  const initial = manager.describe();
+  assert.equal(initial.config.routing.taskClasses.general.semanticLabel, "general question");
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.general.semanticLabel, "general question");
+
+  const nextTaskClasses = {
+    general: initial.config.routing.taskClasses.general,
+    translation: {
+      semanticLabel: "translation work",
+      semanticScore: 15,
+      priority: 95,
+      scoreDelta: -10,
+      patterns: ["\\blocali[sz]e\\b"],
+    },
+  };
+  const updated = await manager.update({ routing: { taskClasses: nextTaskClasses } }, initial.revision);
+  assert.equal(updated.config.routing.taskClasses.translation.semanticLabel, "translation work");
+  assert.equal(updated.config.routing.taskClasses.quick, undefined);
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.translation.semanticLabel, "translation work");
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.quick, undefined);
+});
+
+test("imports legacy YAML task classes into SQLite once", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
   const configPath = path.join(directory, "config.yaml");
   fs.writeFileSync(configPath, `
@@ -154,14 +179,15 @@ routing:
         - "\\\\blocali[sz]e\\\\b"
 `);
 
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
   const manager = new RuntimeConfigManager(configPath);
+  await manager.attachStore(store);
   assert.equal(manager.get().routing.taskClasses.translation.semanticLabel, "translation work");
-  assert.equal(manager.describe().config.routing.taskClasses, undefined);
-});
+  assert.equal(manager.describe().config.routing.taskClasses.translation.semanticLabel, "translation work");
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.translation.semanticLabel, "translation work");
 
-test("rejects invalid YAML task class regexes", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
-  const configPath = path.join(directory, "config.yaml");
   fs.writeFileSync(configPath, `
 logging:
   directory: ${JSON.stringify(directory)}
@@ -172,63 +198,26 @@ upstream:
   strictModelValidation: false
 routing:
   taskClasses:
-    broken:
-      semanticLabel: broken work
+    translation:
+      semanticLabel: changed yaml label
+      priority: 1
       patterns:
-        - "["
+        - "changed"
 `);
+  const reloaded = new RuntimeConfigManager(configPath);
+  await reloaded.attachStore(store);
+  assert.equal(reloaded.get().routing.taskClasses.translation.semanticLabel, "translation work");
+});
 
-  assert.throws(
-    () => new RuntimeConfigManager(configPath),
+test("rejects invalid SQLite task class updates", async (t) => {
+  const { manager } = await runtimeManagerFixture(t);
+  const state = manager.describe();
+  await assert.rejects(
+    manager.update({ routing: { taskClasses: { general: { task: false } } } }, state.revision),
+    /routing\.taskClasses\.general is required/,
+  );
+  await assert.rejects(
+    manager.update({ routing: { taskClasses: { ...state.config.routing.taskClasses, broken: { semanticLabel: "broken work", patterns: ["["] } } } }, state.revision),
     /routing\.taskClasses\.broken\.patterns\.0 is invalid/,
-  );
-});
-
-test("rejects invalid YAML task class definitions", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
-  const configPath = path.join(directory, "config.yaml");
-  fs.writeFileSync(configPath, `
-logging:
-  directory: ${JSON.stringify(directory)}
-classifier:
-  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
-  enabled: false
-upstream:
-  strictModelValidation: false
-routing:
-  taskClasses:
-    BadClass:
-      semanticLabel: bad class
-    general:
-      task: false
-`);
-
-  assert.throws(
-    () => new RuntimeConfigManager(configPath),
-    /routing\.taskClasses\.BadClass must use lowercase/,
-  );
-});
-
-test("rejects invalid YAML task class hard floors", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-config-"));
-  const configPath = path.join(directory, "config.yaml");
-  fs.writeFileSync(configPath, `
-logging:
-  directory: ${JSON.stringify(directory)}
-classifier:
-  cacheDir: ${JSON.stringify(path.join(directory, "models"))}
-  enabled: false
-upstream:
-  strictModelValidation: false
-routing:
-  taskClasses:
-    custom:
-      semanticLabel: custom work
-      hardFloor: extreme
-`);
-
-  assert.throws(
-    () => new RuntimeConfigManager(configPath),
-    /routing\.taskClasses\.custom\.hardFloor must be medium or high/,
   );
 });

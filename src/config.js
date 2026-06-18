@@ -77,6 +77,7 @@ const UI_EDITABLE_PATHS = new Set([
   "routing.targets.planning",
   "routing.targets.large",
   "routing.targets.vision",
+  "routing.taskClasses",
   "classifier.enabled",
   "classifier.timeoutMs",
   "classifier.minimumConfidence",
@@ -99,6 +100,27 @@ function mergeDeep(base, override) {
     else result[key] = value;
   }
   return result;
+}
+
+function mergeConfig(base, override) {
+  const result = mergeDeep(base, override);
+  if (Object.hasOwn(override?.routing || {}, "taskClasses")) {
+    result.routing = { ...result.routing, taskClasses: structuredClone(override.routing.taskClasses) };
+  }
+  return result;
+}
+
+function stripYamlTaskClasses(config) {
+  if (!config?.routing || !Object.hasOwn(config.routing, "taskClasses")) return config || {};
+  const next = structuredClone(config);
+  delete next.routing.taskClasses;
+  if (!Object.keys(next.routing).length) delete next.routing;
+  return next;
+}
+
+function taskClassSeed(overrides, fallbackTaskClasses = DEFAULT_TASK_CLASSES) {
+  if (overrides?.routing?.taskClasses) return overrides;
+  return mergeConfig(overrides || {}, { routing: { taskClasses: fallbackTaskClasses } });
 }
 
 function interpolateEnv(text) {
@@ -218,6 +240,10 @@ function setPath(target, dottedPath, value) {
 function flattenEditable(source, prefix = "", target = {}) {
   for (const [key, value] of Object.entries(source || {})) {
     const dotted = prefix ? `${prefix}.${key}` : key;
+    if (dotted === "routing.taskClasses") {
+      setPath(target, dotted, value);
+      continue;
+    }
     if (isObject(value)) flattenEditable(value, dotted, target);
     else if (UI_EDITABLE_PATHS.has(dotted)) setPath(target, dotted, value);
   }
@@ -227,6 +253,10 @@ function flattenEditable(source, prefix = "", target = {}) {
 function leafPaths(source, prefix = "", target = []) {
   for (const [key, value] of Object.entries(source || {})) {
     const dotted = prefix ? `${prefix}.${key}` : key;
+    if (dotted === "routing.taskClasses") {
+      target.push(dotted);
+      continue;
+    }
     if (isObject(value)) leafPaths(value, dotted, target);
     else target.push(dotted);
   }
@@ -238,7 +268,6 @@ function lockedFields() {
 }
 
 function publicConfig(config) {
-  const { taskClasses, ...routing } = config.routing;
   return {
     upstream: {
       baseUrl: config.upstream.baseUrl,
@@ -247,7 +276,7 @@ function publicConfig(config) {
       strictModelValidation: config.upstream.strictModelValidation,
       apiKeyConfigured: Boolean(config.upstream.apiKey),
     },
-    routing: structuredClone(routing),
+    routing: structuredClone(config.routing),
     classifier: {
       enabled: config.classifier.enabled,
       model: config.classifier.model,
@@ -268,8 +297,10 @@ function publicConfig(config) {
 export class RuntimeConfigManager {
   constructor(configPath = process.env.SMART_ROUTER_CONFIG || "./config.yaml") {
     this.configPath = path.resolve(configPath);
-    this.fileConfig = readYaml(this.configPath);
-    const preRuntime = mergeDeep(DEFAULT_CONFIG, this.fileConfig);
+    const rawFileConfig = readYaml(this.configPath);
+    this.fileTaskClasses = rawFileConfig.routing?.taskClasses ? structuredClone(rawFileConfig.routing.taskClasses) : null;
+    this.fileConfig = stripYamlTaskClasses(rawFileConfig);
+    const preRuntime = mergeConfig(DEFAULT_CONFIG, this.fileConfig);
     const dataDir = path.resolve(process.env.SMART_ROUTER_DATA_DIR || preRuntime.logging.directory);
     this.runtimePath = path.join(dataDir, "runtime-config.json");
     this.runtimeStore = null;
@@ -284,15 +315,21 @@ export class RuntimeConfigManager {
     this.runtimeStore = store;
     this.runtimeStoreLabel = "router.sqlite:meta.runtime_config";
     const stored = store.getRuntimeConfig();
+    let nextOverrides;
     if (stored === null && fs.existsSync(this.runtimePath)) {
-      this.runtimeOverrides = readJson(this.runtimePath);
-      store.setRuntimeConfig(this.runtimeOverrides);
+      nextOverrides = readJson(this.runtimePath);
       try {
         fs.renameSync(this.runtimePath, `${this.runtimePath}.migrated`);
       } catch {}
     } else {
-      this.runtimeOverrides = stored || {};
+      nextOverrides = stored || {};
     }
+    const fallbackTaskClasses = this.fileTaskClasses
+      ? { ...structuredClone(DEFAULT_TASK_CLASSES), ...structuredClone(this.fileTaskClasses) }
+      : DEFAULT_TASK_CLASSES;
+    nextOverrides = taskClassSeed(nextOverrides, fallbackTaskClasses);
+    if (stored === null || !stored?.routing?.taskClasses || !nextOverrides?.routing?.taskClasses) store.setRuntimeConfig(nextOverrides);
+    this.runtimeOverrides = nextOverrides;
     this.reload();
     if (notify) {
       for (const listener of this.listeners) await listener(this.effective);
@@ -302,7 +339,7 @@ export class RuntimeConfigManager {
 
   reload() {
     this.effective = validate(applyEnvironment(
-      mergeDeep(mergeDeep(DEFAULT_CONFIG, this.fileConfig), this.runtimeOverrides),
+      mergeConfig(mergeConfig(DEFAULT_CONFIG, this.fileConfig), this.runtimeOverrides),
     ));
     this.revision = stableRevision({ runtime: this.runtimeOverrides, effective: publicConfig(this.effective) });
     return this.effective;
@@ -342,9 +379,9 @@ export class RuntimeConfigManager {
       throw error;
     }
     const editable = flattenEditable(patch);
-    const nextOverrides = mergeDeep(this.runtimeOverrides, editable);
+    const nextOverrides = mergeConfig(this.runtimeOverrides, editable);
     const candidate = validate(applyEnvironment(
-      mergeDeep(mergeDeep(DEFAULT_CONFIG, this.fileConfig), nextOverrides),
+      mergeConfig(mergeConfig(DEFAULT_CONFIG, this.fileConfig), nextOverrides),
     ));
     if (candidateValidator) await candidateValidator(candidate);
     this.persistRuntimeOverrides(nextOverrides);
@@ -372,9 +409,10 @@ export class RuntimeConfigManager {
       error.status = 409;
       throw error;
     }
-    if (this.runtimeStore?.ready) this.runtimeStore.clearRuntimeConfig();
+    const seed = { routing: { taskClasses: structuredClone(DEFAULT_TASK_CLASSES) } };
+    if (this.runtimeStore?.ready) this.runtimeStore.setRuntimeConfig(seed);
     if (fs.existsSync(this.runtimePath)) fs.unlinkSync(this.runtimePath);
-    this.runtimeOverrides = {};
+    this.runtimeOverrides = seed;
     this.reload();
     for (const listener of this.listeners) await listener(this.effective);
     return this.describe();

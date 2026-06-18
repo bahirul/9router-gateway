@@ -76,7 +76,7 @@ The default mapping is:
 | Security, risky migrations, and complex production work | `smart-large` |
 | Requests containing images | `smart-vision` |
 
-Routing starts with deterministic request signals, including English and Indonesian intent and risk terms. The task classes behind those signals are configurable in `config.yaml` under `routing.taskClasses`. Ambiguous requests can use the pinned DeBERTa zero-shot classifier configured in `config.yaml`. A timeout, classifier error, or low-confidence result falls back to deterministic routing.
+Routing starts with deterministic request signals, including English and Indonesian intent and risk terms. The task classes behind those signals are stored in SQLite and can be edited from the dashboard, which is more convenient for Docker and cloud deployments than changing YAML files. Ambiguous requests can use the pinned DeBERTa zero-shot classifier configured in `config.yaml`. A timeout, classifier error, or low-confidence result falls back to deterministic routing.
 
 Conversation affinity prevents a session from being downgraded after it has used a stronger target. Send `x-smart-router-session-id` when the client has a stable conversation identifier. The gateway also recognizes common session fields in request bodies and can derive a privacy-safe fallback fingerprint.
 
@@ -96,27 +96,7 @@ defaults < config.yaml < SQLite dashboard overrides < bootstrap environment vari
 
 Dashboard changes are stored in `data/router.sqlite` and apply to new requests without a restart. Legacy `data/runtime-config.json` overrides are imported into SQLite once on startup.
 
-Task classification classes are YAML-only. They are loaded from `config.yaml` at startup and are not edited by the dashboard runtime overrides. Each class can define deterministic regex patterns, an optional semantic classifier label, routing score impact, priority, and hard floor:
-
-```yaml
-routing:
-  taskClasses:
-    translation:
-      semanticLabel: translation work
-      semanticScore: 15
-      priority: 95
-      scoreDelta: -10
-      patterns:
-        - "\\b(locali[sz]e|translate)\\b"
-    risk:
-      task: false
-      scoreDelta: 30
-      hardFloor: high
-      patterns:
-        - "\\b(production|security|data loss)\\b"
-```
-
-Use `task: false` for signal-only classes that should influence score or floors without becoming the reported `x-smart-router-task`.
+Task classification classes are initialized from built-in defaults, stored in SQLite, and edited from the dashboard Routing page. Each class can define deterministic regex patterns, an optional semantic classifier label, routing score impact, priority, and hard floor. Use `task: false` for signal-only classes that should influence score or floors without becoming the reported `x-smart-router-task`. Existing deployments that still have `routing.taskClasses` in `config.yaml` import those classes into SQLite once; new YAML task-class edits are ignored after SQLite has task classes.
 
 Common environment variables are listed in `.env.example`:
 
