@@ -818,6 +818,42 @@ function apiKeyQuotaDraft(key) {
   };
 }
 
+function ModelLimitInput({ value, onChange, models }) {
+  const [open, setOpen] = useState(false);
+  const query = String(value || "").trim().toLowerCase();
+  const options = models.filter((model) => !query || model.toLowerCase().includes(query));
+  function choose(model) {
+    onChange(model);
+    setOpen(false);
+  }
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onChange={(event) => { onChange(event.target.value); setOpen(true); }}
+        onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }}
+        placeholder="No model limit"
+      />
+      {open && (
+        <div className="absolute left-0 right-0 z-40 mt-1 max-h-56 overflow-y-auto rounded-[10px] border border-border bg-surface p-1 shadow-2xl">
+          <button type="button" className="block w-full rounded-[8px] px-3 py-2 text-left text-sm text-text-muted hover:bg-surface-2" onMouseDown={(event) => { event.preventDefault(); choose(""); }}>
+            No model limit
+          </button>
+          {options.length ? options.map((model) => (
+            <button key={model} type="button" className="block w-full rounded-[8px] px-3 py-2 text-left text-sm text-text-main hover:bg-surface-2" onMouseDown={(event) => { event.preventDefault(); choose(model); }}>
+              {model}
+            </button>
+          )) : (
+            <div className="px-3 py-2 text-sm text-text-muted">No catalog match. Custom value is allowed.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ApiKeysPage() {
   const [config, setConfig] = useState(null);
   const [apiKeys, setApiKeys] = useState([]);
@@ -1044,7 +1080,7 @@ export function ApiKeysPage() {
             </Select>
           </Field>
           <Field label="Model limit" hint="Optional. All requests with this key dispatch to this model.">
-            <Input list="api-key-models" value={keyForcedModel} onChange={(event) => setKeyForcedModel(event.target.value)} placeholder="No model limit" />
+            <ModelLimitInput value={keyForcedModel} onChange={setKeyForcedModel} models={catalogModels} />
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Request quota">
@@ -1060,7 +1096,6 @@ export function ApiKeysPage() {
           </div>
         </div>
       </Dialog>
-      <datalist id="api-key-models">{catalogModels.map((model) => <option key={model} value={model} />)}</datalist>
       <Dialog
         open={Boolean(createdKey)}
         title="API key created"
@@ -1124,14 +1159,13 @@ export function ApiKeysPage() {
                     />
                   )}
                   {(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).quotaPeriod === "none" && <div className="hidden lg:block" />}
-                  <Input
-                    list="api-key-models"
+                  <ModelLimitInput
                     value={(quotaDrafts[key.id] || apiKeyQuotaDraft(key)).forcedModel}
-                    onChange={(event) => setQuotaDrafts((current) => ({
+                    onChange={(model) => setQuotaDrafts((current) => ({
                       ...current,
-                      [key.id]: { ...(current[key.id] || apiKeyQuotaDraft(key)), forcedModel: event.target.value },
+                      [key.id]: { ...(current[key.id] || apiKeyQuotaDraft(key)), forcedModel: model },
                     }))}
-                    placeholder="No model limit"
+                    models={catalogModels}
                   />
                   <Button variant="secondary" disabled={keySaving === key.id} onClick={() => updateKeyQuota(key)}>Save limits</Button>
                 </div>
