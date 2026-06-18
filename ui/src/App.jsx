@@ -9,6 +9,7 @@ import {
   PlaygroundPage,
   RoutingPage,
   SystemPage,
+  TaskClassifierPage,
 } from "./pages";
 
 function Login({ notice, onLogin }) {
@@ -132,6 +133,7 @@ export default function App() {
         <Routes>
           <Route path="/dashboard" element={<OverviewPage />} />
           <Route path="/dashboard/routing" element={<RoutingPage />} />
+          <Route path="/dashboard/task-classifier" element={<TaskClassifierPage />} />
           <Route path="/dashboard/decisions" element={<DecisionsPage />} />
           <Route path="/dashboard/playground" element={<PlaygroundPage />} />
           <Route path="/dashboard/api-keys" element={<ApiKeysPage />} />

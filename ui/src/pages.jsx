@@ -314,30 +314,6 @@ export function RoutingPage() {
   if (!state || !form) return <Loading />;
 
   function field(path, value) { setForm((current) => setNested(current, path, value)); setSaved(false); }
-  function setTaskClasses(taskClasses) { field("routing.taskClasses", taskClasses); }
-  function updateTaskClass(id, patch) {
-    setTaskClasses({
-      ...(form.routing.taskClasses || {}),
-      [id]: { ...(form.routing.taskClasses?.[id] || {}), ...patch },
-    });
-  }
-  function addTaskClass(source = null) {
-    const requested = window.prompt("Task class id (lowercase letters, numbers, _ or -)", source ? `${source}_copy` : "custom");
-    const id = String(requested || "").trim().toLowerCase().replace(/\s+/g, "_");
-    if (!id) return;
-    if (form.routing.taskClasses?.[id]) { setError(`Task class ${id} already exists`); return; }
-    const base = source && form.routing.taskClasses?.[source]
-      ? structuredClone(form.routing.taskClasses[source])
-      : { task: true, semanticLabel: id.replace(/[-_]/g, " "), semanticScore: 45, priority: 0, scoreDelta: 0, patterns: [] };
-    setTaskClasses({ ...(form.routing.taskClasses || {}), [id]: base });
-    setError("");
-  }
-  function deleteTaskClass(id) {
-    if (id === "general") return;
-    const next = { ...(form.routing.taskClasses || {}) };
-    delete next[id];
-    setTaskClasses(next);
-  }
   async function save() {
     try {
       const result = await api("/api/admin/config", {
@@ -349,12 +325,13 @@ export function RoutingPage() {
               requestTimeoutMs: form.upstream.requestTimeoutMs,
               strictModelValidation: form.upstream.strictModelValidation,
             },
-            routing: form.routing,
-            classifier: {
-              enabled: form.classifier.enabled,
-              timeoutMs: form.classifier.timeoutMs,
-              minimumConfidence: form.classifier.minimumConfidence,
-              localFilesOnly: form.classifier.localFilesOnly,
+            routing: {
+              targets: form.routing.targets,
+              thresholds: form.routing.thresholds,
+              ambiguityMargin: form.routing.ambiguityMargin,
+              profiles: form.routing.profiles,
+              shadowMode: form.routing.shadowMode,
+              shadowTarget: form.routing.shadowTarget,
             },
             affinity: form.affinity,
             logging: {
@@ -415,9 +392,107 @@ export function RoutingPage() {
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable shadow mode</p><p className="text-xs text-text-muted">Useful for policy calibration before active routing.</p></div><div className="shrink-0"><Toggle checked={form.routing.shadowMode} onChange={(value) => field("routing.shadowMode", value)} /></div></div>
           <div className="mt-4"><Field label="Shadow dispatch target"><Input list="catalog-targets" value={form.routing.shadowTarget} onChange={(event) => field("routing.shadowTarget", event.target.value)} /></Field></div>
         </Card>
+        <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberField label="Affinity TTL (minutes)" value={Math.round(form.affinity.ttlMs / 60000)} onChange={(value) => field("affinity.ttlMs", value * 60000)} />
+            <NumberField label="Maximum affinities" value={form.affinity.maxEntries} onChange={(value) => field("affinity.maxEntries", value)} />
+            <NumberField label="History retention (days)" value={form.logging.retentionDays} onChange={(value) => field("logging.retentionDays", value)} />
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><div className="min-w-0"><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><div className="shrink-0"><Toggle checked={form.logging.rawPrompts} onChange={(value) => field("logging.rawPrompts", value)} /></div></div>
+          </div>
+        </Card>
+      </div>
+    </>
+  );
+}
+
+export function TaskClassifierPage() {
+  const [state, setState] = useState(null);
+  const [form, setForm] = useState(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  async function load() {
+    try {
+      const value = await api("/api/admin/config");
+      setState(value);
+      setForm(value.config);
+      setError("");
+    } catch (failure) { setError(failure.message); }
+  }
+  useEffect(() => { load(); }, []);
+  if (!state || !form) return <Loading />;
+
+  function field(path, value) { setForm((current) => setNested(current, path, value)); setSaved(false); }
+  function setTaskClasses(taskClasses) { field("routing.taskClasses", taskClasses); }
+  function updateTaskClass(id, patch) {
+    setTaskClasses({
+      ...(form.routing.taskClasses || {}),
+      [id]: { ...(form.routing.taskClasses?.[id] || {}), ...patch },
+    });
+  }
+  function addTaskClass(source = null) {
+    const requested = window.prompt("Task class id (lowercase letters, numbers, _ or -)", source ? `${source}_copy` : "custom");
+    const id = String(requested || "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (!id) return;
+    if (form.routing.taskClasses?.[id]) { setError(`Task class ${id} already exists`); return; }
+    const base = source && form.routing.taskClasses?.[source]
+      ? structuredClone(form.routing.taskClasses[source])
+      : { task: true, semanticLabel: id.replace(/[-_]/g, " "), semanticScore: 45, priority: 0, scoreDelta: 0, patterns: [] };
+    setTaskClasses({ ...(form.routing.taskClasses || {}), [id]: base });
+    setError("");
+  }
+  function deleteTaskClass(id) {
+    if (id === "general") return;
+    const next = { ...(form.routing.taskClasses || {}) };
+    delete next[id];
+    setTaskClasses(next);
+  }
+  async function save() {
+    try {
+      const result = await api("/api/admin/config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: state.revision,
+          patch: {
+            routing: { taskClasses: form.routing.taskClasses },
+            classifier: {
+              enabled: form.classifier.enabled,
+              timeoutMs: form.classifier.timeoutMs,
+              minimumConfidence: form.classifier.minimumConfidence,
+              localFilesOnly: form.classifier.localFilesOnly,
+            },
+          },
+        }),
+      });
+      setState(result);
+      setForm(result.config);
+      setSaved(true);
+      setError("");
+    } catch (failure) { setError(failure.message); }
+  }
+
+  return (
+    <>
+      <PageHeader title="Task Classifier" description="Dashboard-managed classifier labels, regex signals, scoring, and semantic model settings." action={<div className="flex items-center gap-3">{saved && <Badge tone="success">Saved</Badge>}<Button onClick={save}><Icon>save</Icon>Apply changes</Button></div>} />
+      <ErrorBox error={error} />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${(form.classifier.revision || "unknown").slice(0, 8)}`}>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-medium">Use semantic classification</p>
+              <p className="text-xs text-text-muted">Only for prompts near a decision boundary.</p>
+            </div>
+            <div className="shrink-0"><Toggle checked={form.classifier.enabled} onChange={(value) => field("classifier.enabled", value)} /></div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberField label="Timeout (ms)" value={form.classifier.timeoutMs} onChange={(value) => field("classifier.timeoutMs", value)} />
+            <NumberField label="Minimum confidence" step="0.01" value={form.classifier.minimumConfidence} onChange={(value) => field("classifier.minimumConfidence", value)} />
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3 sm:col-span-2"><div className="min-w-0"><p className="text-sm font-medium">Use local model files only</p><p className="text-xs text-text-muted">Require cached classifier files instead of downloading missing model assets.</p></div><div className="shrink-0"><Toggle checked={form.classifier.localFilesOnly} onChange={(value) => field("classifier.localFilesOnly", value)} /></div></div>
+          </div>
+        </Card>
         <Card
           title="Task classes"
-          subtitle="Dashboard-managed classifier labels, regex signals, scoring, and hard floors."
+          subtitle="Classifier labels, regex signals, scoring, and hard floors."
           className="xl:col-span-2"
           action={<Button variant="secondary" onClick={() => addTaskClass()}><Icon>add</Icon>Add class</Button>}
         >
@@ -458,28 +533,6 @@ export function RoutingPage() {
                 </div>
               );
             })}
-          </div>
-        </Card>
-        <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${form.classifier.revision.slice(0, 8)}`}>
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-medium">Use semantic classification</p>
-              <p className="text-xs text-text-muted">Only for prompts near a decision boundary.</p>
-            </div>
-            <div className="shrink-0"><Toggle checked={form.classifier.enabled} onChange={(value) => field("classifier.enabled", value)} /></div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <NumberField label="Timeout (ms)" value={form.classifier.timeoutMs} onChange={(value) => field("classifier.timeoutMs", value)} />
-            <NumberField label="Minimum confidence" step="0.01" value={form.classifier.minimumConfidence} onChange={(value) => field("classifier.minimumConfidence", value)} />
-            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3 sm:col-span-2"><div className="min-w-0"><p className="text-sm font-medium">Use local model files only</p><p className="text-xs text-text-muted">Require cached classifier files instead of downloading missing model assets.</p></div><div className="shrink-0"><Toggle checked={form.classifier.localFilesOnly} onChange={(value) => field("classifier.localFilesOnly", value)} /></div></div>
-          </div>
-        </Card>
-        <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <NumberField label="Affinity TTL (minutes)" value={Math.round(form.affinity.ttlMs / 60000)} onChange={(value) => field("affinity.ttlMs", value * 60000)} />
-            <NumberField label="Maximum affinities" value={form.affinity.maxEntries} onChange={(value) => field("affinity.maxEntries", value)} />
-            <NumberField label="History retention (days)" value={form.logging.retentionDays} onChange={(value) => field("logging.retentionDays", value)} />
-            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><div className="min-w-0"><p className="text-sm font-medium">Store prompt/request context</p><p className="text-xs text-danger">Privacy-sensitive; enables richer feedback review.</p></div><div className="shrink-0"><Toggle checked={form.logging.rawPrompts} onChange={(value) => field("logging.rawPrompts", value)} /></div></div>
           </div>
         </Card>
       </div>
@@ -1047,6 +1100,7 @@ export function SystemPage() {
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState(null);
   const [endpointExample, setEndpointExample] = useState(null);
+  const [endpointCopyMessage, setEndpointCopyMessage] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -1097,6 +1151,14 @@ export function SystemPage() {
     } catch (failure) { setError(failure.message); }
   }
   function copy(value) { navigator.clipboard.writeText(value); setMessage("Copied to clipboard"); }
+  function openEndpointExample(example) { setEndpointCopyMessage(""); setEndpointExample(example); }
+  function closeEndpointExample() { setEndpointCopyMessage(""); setEndpointExample(null); }
+  async function copyEndpointExample() {
+    try {
+      await navigator.clipboard.writeText(endpointExample?.body || "");
+      setEndpointCopyMessage("Copied to clipboard");
+    } catch (failure) { setEndpointCopyMessage(failure.message || "Copy failed"); }
+  }
   const anthropicMessagesUrl = `${status.proxyBaseUrl}/messages`;
   const gatewayRootUrl = status.proxyBaseUrl.replace(/\/v1\/?$/, "");
   const endpointExamples = {
@@ -1160,12 +1222,15 @@ export function SystemPage() {
       <ErrorBox error={error} />
       {message && <div className="mb-4 rounded-[10px] bg-success/10 px-4 py-3 text-sm text-success">{message}</div>}
       <Dialog open={Boolean(dialog)} title={dialog?.title} description={dialog?.description} confirmLabel={dialog?.confirmLabel} destructive={dialog?.destructive} onCancel={() => setDialog(null)} onConfirm={confirmDialog} />
-      <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={() => setEndpointExample(null)} onConfirm={() => setEndpointExample(null)}>
+      <Dialog open={Boolean(endpointExample)} title={endpointExample?.title} description={endpointExample?.description} confirmLabel="Done" showCancel={false} onCancel={closeEndpointExample} onConfirm={closeEndpointExample}>
         <div className="space-y-3">
           <div>
             <div className="mb-1 flex items-center justify-between gap-3">
               <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{endpointExample?.language}</p>
-              <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={() => copy(endpointExample?.body || "")}><Icon>content_copy</Icon>Copy</Button>
+              <div className="flex items-center gap-2">
+                {endpointCopyMessage && <span className="text-xs text-success">{endpointCopyMessage}</span>}
+                <Button variant="secondary" className="min-h-8 px-2 py-1 text-xs" onClick={copyEndpointExample}><Icon>content_copy</Icon>Copy</Button>
+              </div>
             </div>
             <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-[10px] border border-border-subtle bg-bg px-3 py-2 text-xs text-text-main">{endpointExample?.body}</pre>
           </div>
@@ -1188,11 +1253,11 @@ export function SystemPage() {
           <div className="space-y-3">
             <div>
               <p className="mb-2 text-text-muted">OpenAI-compatible base URL</p>
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={status.proxyBaseUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => setEndpointExample(endpointExamples.openai)}>Example</Button></div></div>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={status.proxyBaseUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(status.proxyBaseUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => openEndpointExample(endpointExamples.openai)}>Example</Button></div></div>
             </div>
             <div>
               <p className="mb-2 text-text-muted">Anthropic Messages endpoint</p>
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={anthropicMessagesUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => setEndpointExample(endpointExamples.anthropic)}>Example</Button></div></div>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row"><Input readOnly value={anthropicMessagesUrl} /><div className="flex gap-2 sm:shrink-0"><Button variant="secondary" className="shrink-0" onClick={() => copy(anthropicMessagesUrl)}><Icon>content_copy</Icon></Button><Button variant="secondary" className="shrink-0" onClick={() => openEndpointExample(endpointExamples.anthropic)}>Example</Button></div></div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">{["auto","auto-fast","auto-quality"].map((model) => <Badge key={model} tone="primary">{model}</Badge>)}</div>

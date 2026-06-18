@@ -123,6 +123,7 @@ export function Dialog({
 const NAV = [
   ["/dashboard", "Overview", "dashboard"],
   ["/dashboard/routing", "Routing", "route"],
+  ["/dashboard/task-classifier", "Task Classifier", "psychology", "Classifier"],
   ["/dashboard/decisions", "Decisions", "receipt_long"],
   ["/dashboard/playground", "Playground", "science"],
   ["/dashboard/api-keys", "API Keys", "key"],
@@ -172,9 +173,9 @@ export function Layout({ children, onLogout, theme, setTheme }) {
         </div>
       </header>
       <nav className="fixed inset-x-0 bottom-0 z-20 flex justify-around border-t border-border-subtle bg-surface/95 p-2 backdrop-blur lg:hidden">
-        {NAV.map(([to, label, icon]) => (
+        {NAV.map(([to, label, icon, mobileLabel]) => (
           <NavLink key={to} to={to} end={to === "/dashboard"} className={({ isActive }) => `flex min-w-12 flex-1 flex-col items-center gap-0.5 text-[10px] ${isActive ? "text-primary" : "text-text-muted"}`}>
-            <Icon>{icon}</Icon>{label}
+            <Icon>{icon}</Icon>{mobileLabel || label}
           </NavLink>
         ))}
       </nav>
