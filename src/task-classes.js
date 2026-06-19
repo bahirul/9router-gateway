@@ -5,7 +5,7 @@ export const DEFAULT_TASK_CLASSES = {
     priority: 10,
     scoreDelta: -15,
     patterns: [
-      "\\b(translate|summari[sz]e|rewrite|rephrase|format|spellcheck|typo|define|convert|one[- ]liner|short answer|terjemah(?:kan)?|ringkas|rangkum|tulis ulang|parafrase|perbaiki ejaan|definisikan)\\b",
+      "\\b(translate|summari[sz]e|rewrite|rephrase|format|spellcheck|typo|define|convert|one[- ]liner|short answer)\\b",
     ],
   },
   coding: {
@@ -14,7 +14,7 @@ export const DEFAULT_TASK_CLASSES = {
     priority: 50,
     scoreDelta: 10,
     patterns: [
-      "\\b(code|implement|function|class|typescript|javascript|python|rust|golang|java|sql|regex|api|endpoint|component|refactor|repository|codebase|kode|implementasi|fungsi|kelas|komponen|repositori|basis kode)\\b",
+      "\\b(code|implement|function|class|typescript|javascript|python|rust|golang|java|sql|regex|api|endpoint|component|refactor|repository|codebase)\\b",
     ],
   },
   research: {
@@ -24,7 +24,7 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 20,
     hardFloor: "medium",
     patterns: [
-      "\\b(research|compare|evaluate|benchmark|investigate|latest|sources?|citations?|evidence|riset|teliti|bandingkan|evaluasi|investigasi|terbaru|sumber|sitasi|bukti)\\b",
+      "\\b(research|compare|evaluate|benchmark|investigate|latest|sources?|citations?|evidence)\\b",
     ],
   },
   debugging: {
@@ -34,7 +34,7 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 15,
     hardFloor: "medium",
     patterns: [
-      "\\b(debug|bug|error|exception|stack trace|fails?|broken|regression|root cause|diagnos[ei]|fix this|galat|kesalahan|gagal|rusak|akar masalah|perbaiki ini)\\b",
+      "\\b(debug|bug|error|exception|stack trace|fails?|broken|regression|root cause|diagnos[ei]|fix this)\\b",
     ],
   },
   review: {
@@ -44,7 +44,7 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 20,
     hardFloor: "medium",
     patterns: [
-      "\\b(review|audit|pull request|diff|vulnerabilit|security review|code review|threat model|tinjau|ulasan?|kerentanan|tinjauan keamanan|tinjauan kode|model ancaman)\\b",
+      "\\b(review|audit|pull request|diff|vulnerabilit|security review|code review|threat model)\\b",
     ],
   },
   planning: {
@@ -54,7 +54,7 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 25,
     hardFloor: "medium",
     patterns: [
-      "\\b(plan|architecture|design|strategy|proposal|roadmap|specification|migration plan|implementation plan|trade[- ]?offs?|rencana|rencanakan|arsitektur|desain|strategi|peta jalan|spesifikasi|pertimbangan)\\b",
+      "\\b(plan|architecture|design|strategy|proposal|roadmap|specification|migration plan|implementation plan|trade[- ]?offs?)\\b",
     ],
   },
   general: {
@@ -69,7 +69,7 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 30,
     hardFloor: "high",
     patterns: [
-      "\\b(production|security|authentication|authorization|permission|credential|secret|payment|billing|finance|medical|legal|destructive|delete data|data loss|tenant|encryption|produksi|keamanan|autentikasi|otorisasi|izin|kredensial|rahasia|pembayaran|keuangan|medis|hukum|destruktif|hapus data|kehilangan data|penyewa|enkripsi)\\b",
+      "\\b(production|security|authentication|authorization|permission|credential|secret|payment|billing|finance|medical|legal|destructive|delete data|data loss|tenant|encryption)\\b",
     ],
   },
   migration: {
@@ -77,14 +77,14 @@ export const DEFAULT_TASK_CLASSES = {
     scoreDelta: 25,
     hardFloor: "high",
     patterns: [
-      "\\b(migrat(?:e|ion)|schema change|database upgrade|backfill|zero downtime|rollout|rollback|compatibility|migrasi|perubahan skema|pemutakhiran basis data|tanpa downtime|peluncuran|kompatibilitas)\\b",
+      "\\b(migrat(?:e|ion)|schema change|database upgrade|backfill|zero downtime|rollout|rollback|compatibility)\\b",
     ],
   },
   multi_step: {
     task: false,
     scoreDelta: 10,
     patterns: [
-      "\\b(first|then|after that|finally|step \\d+|end[- ]to[- ]end|across (?:the )?codebase|multiple files?|pertama|kemudian|setelah itu|akhirnya|langkah \\d+|seluruh basis kode|beberapa file)\\b",
+      "\\b(first|then|after that|finally|step \\d+|end[- ]to[- ]end|across (?:the )?codebase|multiple files?)\\b",
     ],
   },
 };

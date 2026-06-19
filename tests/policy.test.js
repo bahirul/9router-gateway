@@ -99,8 +99,8 @@ test("fuses semantic classifier results for ambiguous prompts", () => {
   assert.equal(decision.target, "smart-planning");
 });
 
-test("recognizes Indonesian planning and risk signals", () => {
-  const decision = decide("Rencanakan arsitektur migrasi basis data produksi tanpa downtime dan rollback.");
+test("recognizes planning and risk signals", () => {
+  const decision = decide("Plan a production database migration with zero downtime and rollback.");
   assert.equal(decision.task, "planning");
   assert.equal(decision.target, "smart-large");
 });
