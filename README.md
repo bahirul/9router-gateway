@@ -17,10 +17,10 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 - OpenAI-compatible proxy for Chat Completions, Responses, Anthropic Messages, and model-list routes.
 - Virtual smart models: `auto`, `auto-fast`, and `auto-quality`.
 - Prompt-aware routing with deterministic task classes, optional semantic classification, and image detection.
-- Decision history with per-request route explanations, operator feedback, upstream model review, and exact prompt-hash corrections.
+- Decision history with per-request route explanations, operator feedback, upstream model review, and learned local routing examples.
 - Batch review tooling for stored decisions so operators can inspect and correct routing behavior faster.
 - Routing config proposal workflow that asks an upstream model for safe, previewable dashboard changes before operators apply them.
-- Privacy controls to reset reviewed prompt context and disable learned prompt corrections without deleting all history.
+- Privacy controls to reset reviewed prompt context and disable learned routing examples without deleting all history.
 - API-key enforcement with named keys, expirations, quotas, active/revoked state, and per-key forced model limits.
 - SQLite-backed dashboard controls for routing, task classifier settings, API keys, decision history, review workflows, and system operations.
 - Operations-friendly health checks, readiness checks, Prometheus metrics, Docker support, and local SQLite storage.
@@ -100,13 +100,13 @@ When dashboard API-key enforcement is enabled, clients must send either `Authori
 
 Dashboard → Decisions stores smart-routing decisions with the extracted signals used by the router. Operators can open a decision, add feedback, ask an upstream 9Router model to review the route, preview the suggestion, and apply it when appropriate.
 
-Applied reviews store operator feedback and can create exact prompt-hash corrections for future matching prompts. Corrections are intentionally narrow: they do not rewrite task-class regexes, thresholds, or routing targets automatically.
+Applied reviews store operator feedback and train a local learned-routing classifier from stored prompt context. Future similar prompts can route with mode `learned_classified`; the system does not mutate task-class regexes, thresholds, or routing targets automatically.
 
 Use batch review from the Decisions page when you want to review multiple stored decisions in one workflow. Review features require stored prompt/request context, so enable Dashboard → Routing → Raw prompt logging before collecting decisions you plan to audit. Stored request context is sanitized for sensitive fields before persistence.
 
 ## Routing Config Proposals
 
-Dashboard → Decisions → Improve routing config helps operators improve routing configuration without hand-editing YAML or immediately changing live behavior. The gateway uses reviewed decisions matching the active filters as samples, then asks an upstream 9Router model to suggest a small JSON patch against allowed routing paths.
+Dashboard → Decisions → Review all sends matching unreviewed decisions to the selected judge model one by one. Confident correct or incorrect reviews train learned routing immediately, while uncertain reviews are still marked reviewed as feedback.
 
 Every proposal is normalized and validated before it can be previewed or applied. The preview compares current routing with the candidate configuration for the supplied samples, showing task, target, complexity, and whether each route would change.
 
@@ -114,7 +114,7 @@ Applying a proposal is an explicit operator action. Accepted changes are saved a
 
 ## Prompt Context Privacy Reset
 
-Use Dashboard → System → Reset reviewed prompt data to clear stored raw prompts and request context for reviewed decisions, and disable learned prompt corrections. Decision history and operator feedback stay available.
+Use Dashboard → System → Reset learned routing data to clear stored raw prompts and request context for reviewed decisions, and disable learned routing examples. Decision history and operator feedback stay available.
 
 For stronger cleanup, Dashboard → System can also purge decision history, reset runtime overrides, or reset the SQLite database while preserving the admin password.
 

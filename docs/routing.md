@@ -82,7 +82,7 @@ API keys can force all routable requests to one upstream model. This is useful w
 Behavior:
 
 - Explicit model requests are rewritten to the forced model and are not logged as smart-routing decisions.
-- Virtual model requests still run routing, but prompt corrections and global shadow dispatch are skipped.
+- Virtual model requests still run routing, but learned routing and global shadow dispatch are skipped.
 - Virtual requests with a forced key dispatch to the forced model and are logged with mode `key_shadow`.
 - `GET /v1/models` is filtered to `auto`, `auto-fast`, `auto-quality`, and the forced model.
 - If strict model validation is enabled, the forced model must resolve in the 9Router catalog or the request fails closed.
@@ -99,11 +99,11 @@ Only records with stored prompt/request context are eligible for model review. E
 
 `correct` and `uncertain` reviews are recorded as review results only. They cannot be applied as routing corrections. An `incorrect` review can be applied only when it includes a configured target key and meets the confidence threshold, which defaults to `0.7`.
 
-Applying a correction writes operator feedback and stores an exact prompt-hash correction for future matching prompts. Future virtual-model requests with the same prompt hash use mode `feedback_corrected`, keep the original configured target for audit fields, and dispatch to the corrected target. Corrections do not run during global shadow mode or per-key forced-model routing, and they do not rewrite task-class regexes, thresholds, or model targets automatically.
+Applying a review writes operator feedback and can store a learned routing example from the prompt text. Future similar virtual-model requests use mode `learned_classified`, keep the original configured target for audit fields, and dispatch to the learned target. Learned routing does not run during global shadow mode or per-key forced-model routing, and it does not rewrite task-class regexes, thresholds, or model targets automatically.
 
-Operators can also create a prompt correction from manual feedback when they choose a configured expected target and the decision has stored prompt context. Manual and model-reviewed corrections use the same prompt-hash matching behavior.
+Operators can also train learned routing from manual feedback when they choose a configured expected target and the decision has stored prompt context. Manual and model-reviewed examples use the same similarity matching behavior.
 
-Dashboard → System → Reset reviewed prompt data disables learned prompt corrections and clears stored raw prompt/request context only for reviewed decisions. Decision history and feedback remain available; unreviewed prompt context is left intact.
+Dashboard → System → Reset learned routing data disables learned routing examples and clears stored raw prompt/request context only for reviewed decisions. Decision history and feedback remain available; unreviewed prompt context is left intact.
 
 Batch review is a dashboard workflow, not a separate routing path or server-side batch endpoint. Dashboard → Decisions → Review all calls the same single-decision review, apply, and feedback endpoints sequentially for each unreviewed record that matches the active filters.
 
@@ -112,7 +112,7 @@ Batch review is a dashboard workflow, not a separate routing path or server-side
 Reviewed decisions can be used to propose safer routing config changes from observed routing misses. This workflow is intentionally staged:
 
 1. Review decisions from Dashboard → Decisions and apply feedback when the expected target differs from the selected target.
-2. Click Improve routing config with Decisions filters set to the reviewed slice you want to learn from.
+2. Click Review all with Decisions filters set to the unreviewed slice you want the judge model to review and train from.
 3. Inspect the model-generated config proposal, including each changed path, rationale, and proposed value.
 4. Inspect the backend impact preview before approving. The preview compares current routing with the candidate config for the reviewed matching samples.
 5. Approve and apply only when the preview matches operator intent.

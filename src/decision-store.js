@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { bestLearnedRoutingMatch, learnedRoutingTokens } from "./learned-routing.js";
 
 function json(value, fallback = null) {
   try {
@@ -201,6 +202,22 @@ export class DecisionStore {
           FOREIGN KEY(sourceRequestId) REFERENCES decisions(requestId) ON DELETE CASCADE,
           FOREIGN KEY(correctionRunId) REFERENCES correctionRuns(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS learnedRoutingExamples (
+          requestId TEXT PRIMARY KEY,
+          promptText TEXT NOT NULL,
+          tokensJson TEXT NOT NULL,
+          task TEXT,
+          expectedTargetKey TEXT NOT NULL,
+          expectedTarget TEXT NOT NULL,
+          verdict TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          rationale TEXT,
+          source TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY(requestId) REFERENCES decisions(requestId) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS apiKeys (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -234,6 +251,7 @@ export class DecisionStore {
         CREATE INDEX IF NOT EXISTS idx_decisions_mode ON decisions(mode);
         CREATE INDEX IF NOT EXISTS idx_correction_items_run ON correctionItems(runId);
         CREATE INDEX IF NOT EXISTS idx_prompt_corrections_active ON promptCorrections(active);
+        CREATE INDEX IF NOT EXISTS idx_learned_routing_active ON learnedRoutingExamples(active);
       `);
       this.migrate();
       this.ensureAdminPassword();
@@ -287,6 +305,23 @@ export class DecisionStore {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN forcedModel TEXT`);
     }
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS learnedRoutingExamples (
+        requestId TEXT PRIMARY KEY,
+        promptText TEXT NOT NULL,
+        tokensJson TEXT NOT NULL,
+        task TEXT,
+        expectedTargetKey TEXT NOT NULL,
+        expectedTarget TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        rationale TEXT,
+        source TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY(requestId) REFERENCES decisions(requestId) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_learned_routing_active ON learnedRoutingExamples(active);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_secret_lookup ON apiKeys(secretLookup) WHERE secretLookup IS NOT NULL;
       CREATE TABLE IF NOT EXISTS apiKeyUsage (
         apiKeyId TEXT NOT NULL,
@@ -530,77 +565,108 @@ export class DecisionStore {
     ));
   }
 
-  feedbackWithCorrection(record, { createPromptCorrection = false, targets = {} } = {}) {
-    if (!this.ready) return { decision: null, promptCorrection: false, degraded: true };
+  promptTextForDecision(decision) {
+    if (decision?.prompt) return decision.prompt;
+    if (decision?.request?.body) return JSON.stringify(decision.request.body).slice(0, 12000);
+    return "";
+  }
+
+  storeLearnedRoutingExample(record, decision, { expectedTargetKey, expectedTarget, verdict = "operator", confidence = 1, rationale = null, source = "feedback", now = new Date().toISOString() } = {}) {
+    if (!expectedTargetKey || !expectedTarget) return false;
+    const promptText = this.promptTextForDecision(decision);
+    const tokens = learnedRoutingTokens(promptText);
+    if (!promptText || !tokens.length) {
+      const error = new Error("stored prompt context is required to train learned routing");
+      error.status = 400;
+      throw error;
+    }
+    this.db.prepare(`
+      INSERT INTO learnedRoutingExamples(
+        requestId,promptText,tokensJson,task,expectedTargetKey,expectedTarget,verdict,confidence,rationale,source,active,createdAt,updatedAt
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(requestId) DO UPDATE SET promptText=excluded.promptText,tokensJson=excluded.tokensJson,
+      task=excluded.task,expectedTargetKey=excluded.expectedTargetKey,expectedTarget=excluded.expectedTarget,
+      verdict=excluded.verdict,confidence=excluded.confidence,rationale=excluded.rationale,source=excluded.source,
+      active=1,updatedAt=excluded.updatedAt
+    `).run(
+      record.requestId, promptText.slice(0, 12000), JSON.stringify(tokens), decision.task || null,
+      expectedTargetKey, expectedTarget, verdict, Number(confidence) || 0, rationale || null, source, 1, now, now,
+    );
+    return true;
+  }
+
+  feedbackWithLearning(record, { train = false, targets = {}, expectedTargetKey = null, verdict = "operator", confidence = 1, source = "feedback" } = {}) {
+    if (!this.ready) return { decision: null, learnedExample: false, degraded: true };
     const decision = this.get(record.requestId);
     if (!decision) return null;
-    const targetEntry = Object.entries(targets).find(([, target]) => target === record.expectedTarget);
-    if (createPromptCorrection && !record.expectedTarget) {
-      const error = new Error("expectedTarget is required to create a routing correction");
+    const targetEntry = expectedTargetKey
+      ? [expectedTargetKey, targets[expectedTargetKey]]
+      : Object.entries(targets).find(([, target]) => target === record.expectedTarget);
+    if (train && (!targetEntry || !targetEntry[1])) {
+      const error = new Error("learned routing target must match a configured routing target");
       error.status = 400;
       throw error;
     }
-    if (createPromptCorrection && !targetEntry) {
-      const error = new Error("expectedTarget must match a configured routing target");
-      error.status = 400;
-      throw error;
-    }
-    if (createPromptCorrection && !decision.promptHash) {
-      const error = new Error("stored prompt context is required to create a routing correction");
+    if (train && !learnedRoutingTokens(this.promptTextForDecision(decision)).length) {
+      const error = new Error("stored prompt context is required to train learned routing");
       error.status = 400;
       throw error;
     }
     const now = record.updatedAt || new Date().toISOString();
+    let learnedExample = false;
     this.execute(() => {
       this.db.prepare(`
         INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
         ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
         note=excluded.note,updatedAt=excluded.updatedAt
       `).run(record.requestId, record.rating, record.expectedTarget || null, record.note || null, now);
-      if (createPromptCorrection) {
-        this.db.prepare(`
-          INSERT OR IGNORE INTO correctionRuns(
-            id,createdAt,status,judgeModel,requestedCount,eligibleCount,promptVersion,configRevision
-          ) VALUES('manual_feedback',?,'applied','operator-feedback',0,0,'manual-feedback','manual-feedback')
-        `).run(now);
-        this.db.prepare(`
-          INSERT INTO promptCorrections(
-            promptHash,expectedTargetKey,expectedTarget,sourceRequestId,correctionRunId,confidence,rationale,active,createdAt,updatedAt
-          ) VALUES(?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(promptHash) DO UPDATE SET expectedTargetKey=excluded.expectedTargetKey,
-          expectedTarget=excluded.expectedTarget,sourceRequestId=excluded.sourceRequestId,
-          correctionRunId=excluded.correctionRunId,confidence=excluded.confidence,
-          rationale=excluded.rationale,active=1,updatedAt=excluded.updatedAt
-        `).run(
-          decision.promptHash, targetEntry[0], record.expectedTarget, record.requestId,
-          "manual_feedback", 1, record.note || "Operator feedback", 1, now, now,
-        );
+      if (train) {
+        learnedExample = this.storeLearnedRoutingExample(record, decision, {
+          expectedTargetKey: targetEntry[0], expectedTarget: targetEntry[1], verdict, confidence,
+          rationale: record.note || null, source, now,
+        });
       }
     });
-    return { decision: this.get(record.requestId), promptCorrection: Boolean(createPromptCorrection) };
+    return { decision: this.get(record.requestId), learnedExample, promptCorrection: learnedExample };
+  }
+
+  feedbackWithCorrection(record, options = {}) {
+    return this.feedbackWithLearning(record, { ...options, train: Boolean(options.createPromptCorrection) });
+  }
+
+  listLearnedRoutingExamples() {
+    if (!this.ready) return [];
+    return this.db.prepare(`SELECT * FROM learnedRoutingExamples WHERE active=1 ORDER BY updatedAt DESC`).all()
+      .map((row) => ({ ...row, active: Boolean(row.active), tokens: json(row.tokensJson, []) }))
+      .filter((row) => row.tokens.length);
+  }
+
+  matchLearnedRouting(text, { threshold = 0.24, margin = 0.05 } = {}) {
+    if (!this.ready || !text) return null;
+    return bestLearnedRoutingMatch(text, this.listLearnedRoutingExamples(), { threshold, margin });
   }
 
   clearFeedback(requestId) {
     this.execute(() => {
       this.db.prepare(`DELETE FROM feedback WHERE requestId=?`).run(requestId);
-      this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE sourceRequestId=? AND correctionRunId='manual_feedback'`).run(new Date().toISOString(), requestId);
+      this.db.prepare(`UPDATE learnedRoutingExamples SET active=0, updatedAt=? WHERE requestId=?`).run(new Date().toISOString(), requestId);
     });
   }
 
   clearDecisions() {
-    this.execute(() => this.db.exec(`DELETE FROM promptCorrections; DELETE FROM correctionItems; DELETE FROM correctionRuns; DELETE FROM decisions; DELETE FROM feedback;`));
+    this.execute(() => this.db.exec(`DELETE FROM learnedRoutingExamples; DELETE FROM promptCorrections; DELETE FROM correctionItems; DELETE FROM correctionRuns; DELETE FROM decisions; DELETE FROM feedback;`));
   }
 
-  clearPromptCorrections() {
-    if (!this.ready) return { deactivated: 0, degraded: true };
+  clearLearnedRouting({ clearReviewedContext = true } = {}) {
+    if (!this.ready) return { deactivated: 0, cleared: 0, degraded: true };
     const now = new Date().toISOString();
     try {
       this.db.exec("BEGIN");
       const reviewedRequestIds = new Set(this.db.prepare(`SELECT requestId FROM feedback`).all().map((row) => row.requestId));
-      for (const row of this.db.prepare(`SELECT sourceRequestId FROM promptCorrections`).all()) reviewedRequestIds.add(row.sourceRequestId);
-      const deactivated = Number(this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE active=1`).run(now).changes || 0);
+      for (const row of this.db.prepare(`SELECT requestId FROM learnedRoutingExamples`).all()) reviewedRequestIds.add(row.requestId);
+      const deactivated = Number(this.db.prepare(`UPDATE learnedRoutingExamples SET active=0, updatedAt=? WHERE active=1`).run(now).changes || 0);
       let cleared = 0;
-      if (reviewedRequestIds.size) {
+      if (clearReviewedContext && reviewedRequestIds.size) {
         const clearContext = this.db.prepare(`UPDATE decisions SET prompt=NULL, requestJson=NULL WHERE requestId=? AND (prompt IS NOT NULL OR requestJson IS NOT NULL)`);
         for (const requestId of reviewedRequestIds) cleared += Number(clearContext.run(requestId).changes || 0);
       }
@@ -615,13 +681,34 @@ export class DecisionStore {
     }
   }
 
+  clearPromptCorrections() { return this.clearLearnedRouting(); }
+
+  getPromptCorrection(promptHash) {
+    if (!this.ready || !promptHash) return null;
+    const row = this.db.prepare(`
+      SELECT lr.*, d.promptHash FROM learnedRoutingExamples lr
+      JOIN decisions d ON d.requestId=lr.requestId
+      WHERE d.promptHash=? AND lr.active=1
+    `).get(promptHash);
+    return row ? {
+      expectedTargetKey: row.expectedTargetKey,
+      expectedTarget: row.expectedTarget,
+      sourceRequestId: row.requestId,
+      correctionRunId: row.source === "feedback" ? "manual_feedback" : "model_review",
+      confidence: row.confidence,
+      rationale: row.rationale,
+      active: Boolean(row.active),
+    } : null;
+  }
+
   resetDatabase() {
     if (!this.ready) return false;
     try {
       const adminPassword = this.getAdminPasswordRecord();
       const jsonlImported = this.db.prepare(`SELECT value FROM meta WHERE key='jsonlImported'`).get()?.value || new Date().toISOString();
-      this.db.exec(`
-        DELETE FROM promptCorrections;
+	      this.db.exec(`
+	        DELETE FROM learnedRoutingExamples;
+	        DELETE FROM promptCorrections;
         DELETE FROM correctionItems;
         DELETE FROM correctionRuns;
         DELETE FROM feedback;
@@ -681,12 +768,12 @@ export class DecisionStore {
       }
     }
     const size = Math.min(100, Math.max(1, Number(limit) || 50));
-    const rows = this.db.prepare(`
-      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
-      pc.expectedTargetKey AS promptCorrectionTargetKey,pc.expectedTarget AS promptCorrectionTarget,
-      pc.correctionRunId AS promptCorrectionRunId,pc.updatedAt AS promptCorrectionUpdatedAt
-      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
-      LEFT JOIN promptCorrections pc ON pc.sourceRequestId=d.requestId AND pc.active=1
+	    const rows = this.db.prepare(`
+	      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+	      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
+	      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
+	      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+	      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY d.timestamp DESC LIMIT ?
     `).all(...params, size + 1);
@@ -697,12 +784,12 @@ export class DecisionStore {
 
   get(requestId) {
     if (!this.ready) return null;
-    const row = this.db.prepare(`
-      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
-      pc.expectedTargetKey AS promptCorrectionTargetKey,pc.expectedTarget AS promptCorrectionTarget,
-      pc.correctionRunId AS promptCorrectionRunId,pc.updatedAt AS promptCorrectionUpdatedAt
-      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
-      LEFT JOIN promptCorrections pc ON pc.sourceRequestId=d.requestId AND pc.active=1
+	    const row = this.db.prepare(`
+	      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+	      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
+	      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
+	      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+	      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
       WHERE d.requestId=?
     `).get(requestId);
     return row ? this.mapRow(row) : null;
@@ -718,13 +805,20 @@ export class DecisionStore {
       tokens: json(row.tokens),
       request: json(row.requestJson),
       userAgent: row.userAgent || row.client || null,
-      reviewed: Boolean(row.rating || row.promptCorrectionRunId),
-      promptCorrection: row.promptCorrectionRunId ? {
-        runId: row.promptCorrectionRunId,
-        expectedTargetKey: row.promptCorrectionTargetKey,
-        expectedTarget: row.promptCorrectionTarget,
-        updatedAt: row.promptCorrectionUpdatedAt,
-      } : null,
+	      reviewed: Boolean(row.rating || row.learnedTargetKey),
+	      learnedRouting: row.learnedTargetKey ? {
+	        expectedTargetKey: row.learnedTargetKey,
+	        expectedTarget: row.learnedTarget,
+	        confidence: row.learnedConfidence,
+	        source: row.learnedSource,
+	        updatedAt: row.learnedUpdatedAt,
+	      } : null,
+	      promptCorrection: row.learnedTargetKey ? {
+	        runId: row.learnedSource === "feedback" ? "manual_feedback" : "model_review",
+	        expectedTargetKey: row.learnedTargetKey,
+	        expectedTarget: row.learnedTarget,
+	        updatedAt: row.learnedUpdatedAt,
+	      } : null,
       feedback: row.rating ? {
         rating: row.rating,
         expectedTarget: row.expectedTarget,
@@ -734,63 +828,56 @@ export class DecisionStore {
     };
   }
 
-  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7, enablePromptCorrection = true } = {}) {
-    if (!this.ready) return { requestId, appliedFeedback: false, promptCorrection: false, degraded: true };
-    const decision = this.get(requestId);
-    if (!decision) return null;
-    const confidence = Number(suggestion?.confidence) || 0;
-    const incorrect = suggestion?.verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget;
-    if (!incorrect || confidence < minConfidence) {
-      const error = new Error("suggestion must be an incorrect verdict above the confidence threshold");
-      error.status = 400;
-      throw error;
-    }
-    const now = new Date().toISOString();
-    this.execute(() => {
-      this.db.prepare(`
+	  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7 } = {}) {
+	    if (!this.ready) return { requestId, appliedFeedback: false, learnedExample: false, degraded: true };
+	    const decision = this.get(requestId);
+	    if (!decision) return null;
+	    const confidence = Number(suggestion?.confidence) || 0;
+	    const verdict = ["correct", "incorrect", "uncertain"].includes(suggestion?.verdict) ? suggestion.verdict : "uncertain";
+	    const trainIncorrect = verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget && confidence >= minConfidence;
+	    const trainCorrect = verdict === "correct" && decision.targetKey && decision.target && confidence >= minConfidence;
+	    if (!trainIncorrect && !trainCorrect && verdict !== "uncertain") {
+	      const error = new Error("suggestion must be correct or incorrect above the confidence threshold, or uncertain");
+	      error.status = 400;
+	      throw error;
+	    }
+	    const now = new Date().toISOString();
+	    const rating = verdict === "correct" ? 5 : verdict === "incorrect" ? 2 : 3;
+	    const expectedTargetKey = trainIncorrect ? suggestion.expectedTargetKey : trainCorrect ? decision.targetKey : null;
+	    const expectedTarget = trainIncorrect ? suggestion.expectedTarget : trainCorrect ? decision.target : null;
+	    let learnedExample = false;
+	    this.execute(() => {
+	      this.db.prepare(`
         INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
         ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
         note=excluded.note,updatedAt=excluded.updatedAt
-      `).run(
-        requestId,
-        2,
-        suggestion.expectedTarget,
-        suggestion.rationale || "Decision reviewed by upstream model",
-        now,
-      );
-      if (enablePromptCorrection && decision.promptHash) {
-        this.db.prepare(`
-          INSERT OR IGNORE INTO correctionRuns(
-            id,createdAt,status,judgeModel,requestedCount,eligibleCount,promptVersion,configRevision
-          ) VALUES('direct_review',?,'applied','direct-review',0,0,'direct-review','direct-review')
-        `).run(now);
-        this.db.prepare(`
-          INSERT INTO promptCorrections(
-            promptHash,expectedTargetKey,expectedTarget,sourceRequestId,correctionRunId,confidence,rationale,active,createdAt,updatedAt
-          ) VALUES(?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(promptHash) DO UPDATE SET expectedTargetKey=excluded.expectedTargetKey,
-          expectedTarget=excluded.expectedTarget,sourceRequestId=excluded.sourceRequestId,
-          correctionRunId=excluded.correctionRunId,confidence=excluded.confidence,
-          rationale=excluded.rationale,active=1,updatedAt=excluded.updatedAt
-        `).run(
-          decision.promptHash, suggestion.expectedTargetKey, suggestion.expectedTarget, requestId,
-          "direct_review", confidence, suggestion.rationale || null, 1, now, now,
-        );
-      }
-    });
-    return {
-      requestId,
-      appliedFeedback: true,
-      promptCorrection: Boolean(enablePromptCorrection && decision.promptHash),
-      decision: this.get(requestId),
-    };
-  }
-
-  getPromptCorrection(promptHash) {
-    if (!this.ready || !promptHash) return null;
-    const row = this.db.prepare(`SELECT * FROM promptCorrections WHERE promptHash=? AND active=1`).get(promptHash);
-    return row ? { ...row, active: Boolean(row.active) } : null;
-  }
+	      `).run(
+	        requestId,
+	        rating,
+	        expectedTarget,
+	        suggestion.rationale || "Decision reviewed by upstream model",
+	        now,
+	      );
+	      if (expectedTargetKey && expectedTarget) {
+	        learnedExample = this.storeLearnedRoutingExample({ requestId }, decision, {
+	          expectedTargetKey,
+	          expectedTarget,
+	          verdict,
+	          confidence,
+	          rationale: suggestion.rationale || null,
+	          source: "model_review",
+	          now,
+	        });
+	      }
+	    });
+	    return {
+	      requestId,
+	      appliedFeedback: true,
+	      learnedExample,
+	      promptCorrection: learnedExample,
+	      decision: this.get(requestId),
+	    };
+	  }
 
   analytics({ from, to } = {}) {
     const end = to || new Date().toISOString();

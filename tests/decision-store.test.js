@@ -138,7 +138,7 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(store.verifyApiKey(created.secret), false);
 });
 
-test("persists direct decision review feedback and prompt corrections", async (t) => {
+test("persists direct decision review feedback and learned routing", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-corrections-"));
   const store = new DecisionStore({ directory, logger: { warn() {} } });
   await store.init();
@@ -241,13 +241,6 @@ test("creates manual routing corrections from feedback only when requested", asy
   assert.equal(store.getPromptCorrection("manual-correction-hash"), null);
   assert.equal(store.get("manual-correction-request").feedback.expectedTarget, "smart-planning");
   assert.equal(store.get("manual-correction-request").reviewed, true);
-
-  store.feedbackWithCorrection({
-    requestId: "manual-correction-request",
-    rating: 2,
-    expectedTarget: "smart-planning",
-    note: "needs planning",
-  }, { createPromptCorrection: true, targets });
 
   store.clearFeedback("manual-correction-request");
   assert.equal(store.get("manual-correction-request").feedback, null);

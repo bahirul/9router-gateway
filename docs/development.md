@@ -68,15 +68,15 @@ npm run smoke:upstream
 - `src/admin-api.js`: dashboard/admin API routes for sessions, config, catalog, API keys, analytics, decisions, feedback, and decision review.
 - `src/config.js`: defaults, config loading, env overrides, validation, SQLite runtime config.
 - `src/catalog.js`: upstream model catalog refresh and dispatch target validation.
-- `src/router-engine.js`: request normalization, feature extraction, classifier use, affinity, forced-model handling, prompt corrections, catalog fallback, and decision logging.
+- `src/router-engine.js`: request normalization, feature extraction, classifier use, affinity, forced-model handling, learned routing examples, catalog fallback, and decision logging.
 - `src/policy.js`: score-to-target policy and routing profile behavior.
 - `src/features.js`: deterministic signal extraction.
 - `src/task-classes.js`: built-in task class defaults and validation.
 - `src/classifier.js`: optional semantic classifier backed by `@huggingface/transformers`.
 - `src/affinity.js`: session affinity for stable multi-turn dispatch.
 - `src/request-normalizer.js`: OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages normalization.
-- `src/decision-store.js`: SQLite storage for decisions, outcomes, feedback, prompt corrections, API keys, admin password, quotas, and runtime config.
-- `src/decision-corrector.js`: judge-model review of stored decisions and application of prompt corrections.
+- `src/decision-store.js`: SQLite storage for decisions, outcomes, feedback, learned routing examples, API keys, admin password, quotas, and runtime config.
+- `src/decision-corrector.js`: judge-model review of stored decisions and application of learned routing examples.
 - `src/log-store.js`: JSONL logging plus persistence handoff to `DecisionStore`.
 - `src/metrics.js`: in-process Prometheus-style counters and gauges.
 - `src/session-manager.js`: dashboard sessions and CSRF checks.
@@ -90,11 +90,11 @@ npm run smoke:upstream
 
 Runtime config proposals are the safe-change workflow for dashboard-assisted routing tuning:
 
-- `src/admin-api.js`: exposes `POST /api/admin/routing-config/proposals`, `POST /api/admin/routing-config/preview`, and `POST /api/admin/routing-config/apply`; generation/preview dispatch to the injected proposer, while apply validates and saves through `RuntimeConfigManager.update()`.
-- `src/routing-config-proposer.js`: owns judge prompting, proposal JSON normalization, allowed-path patch construction, candidate validation, and sample-based impact preview.
+- `src/admin-api.js`: exposes decision review, feedback, learned-routing reset, runtime config, and admin operations endpoints.
+- `src/learned-routing.js`: owns tokenization and similarity matching for local learned routing examples.
 - `src/config.js`: owns the authoritative `RuntimeConfigManager.update()` apply path, revision checks, UI-editable path enforcement, validation, persistence, and listener notification.
-- `src/server.js`: wires `RoutingConfigProposer` into the admin API and updates live components when runtime config changes.
-- `tests/routing-config-proposer.test.js`, `tests/admin-api.test.js`, and `tests/config-manager.test.js`: cover proposal validation, endpoint dispatch, stale revision handling, and runtime persistence.
+- `src/server.js`: wires the decision corrector into the admin API and updates live components when runtime config changes.
+- `tests/decision-corrector.test.js`, `tests/admin-api.test.js`, and `tests/config-manager.test.js`: cover model review, endpoint dispatch, stale revision handling, and runtime persistence.
 
 The built-in proposer exposes `generate()`, `propose()`, `buildPatch()`, `validate()`, and `preview()` helpers and defaults to routing-only allowed paths: thresholds, ambiguity margin, virtual profile score biases, routing targets, and `routing.taskClasses`. Keep this list narrow unless the apply path and dashboard UX are also updated; generated patches should never be able to modify secrets, server binding, storage paths, or unrelated security settings.
 
@@ -108,12 +108,12 @@ Safe apply semantics depend on `RuntimeConfigManager.update()` rather than direc
 
 ## Decision Review Modules
 
-Decision review starts from stored routing decisions and can create reusable prompt corrections:
+Decision review starts from stored routing decisions and can create reusable learned routing examples:
 
 - `src/admin-api.js`: exposes `POST /api/admin/decisions/:requestId/review` and `POST /api/admin/decisions/:requestId/review/apply`.
 - `src/decision-corrector.js`: calls an upstream judge model through `/v1/chat/completions`, asks for strict JSON, validates confidence, and returns a suggestion.
-- `src/decision-store.js`: stores review feedback, prompt corrections, ratings, and correction metadata.
-- `src/router-engine.js`: applies active prompt corrections for matching prompt hashes when not in shadow mode and not forced by an API key.
+- `src/decision-store.js`: stores review feedback, learned routing examples, ratings, and correction metadata.
+- `src/router-engine.js`: applies active learned routing examples for similar prompts when not in shadow mode and not forced by an API key.
 - `tests/decision-corrector.test.js` and `tests/decision-store.test.js`: cover review application, correction persistence, and corrected routing decisions.
 
 ## Documentation Sources of Truth

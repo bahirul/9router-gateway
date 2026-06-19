@@ -198,7 +198,7 @@ export class DecisionCorrector {
     };
   }
 
-  applyDecisionReview(requestId, { expectedRevision, suggestion, minConfidence = 0.7, enablePromptCorrection = true } = {}) {
+  applyDecisionReview(requestId, { expectedRevision, suggestion, minConfidence = 0.7 } = {}) {
     if (expectedRevision !== this.getRevision()) {
       const error = new Error("Configuration changed; rerun review before applying");
       error.status = 409;
@@ -206,7 +206,6 @@ export class DecisionCorrector {
     }
     const result = this.store.applyDecisionReview(requestId, suggestion, {
       minConfidence,
-      enablePromptCorrection,
     });
     if (!result) {
       const error = new Error("Decision not found");
@@ -214,7 +213,7 @@ export class DecisionCorrector {
       throw error;
     }
     this.metrics.increment("smart_router_correction_runs_total", { result: "applied" });
-    this.metrics.increment("smart_router_prompt_corrections_total", { result: result.promptCorrection ? "created" : "none" });
+    this.metrics.increment("smart_router_learned_routing_total", { result: result.learnedExample ? "trained" : "none" });
     return result;
   }
 }

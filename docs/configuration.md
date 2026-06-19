@@ -67,11 +67,7 @@ Dashboard reset returns runtime overrides to file and environment values, but ke
 
 ## Runtime Config Proposals
 
-Runtime routing changes can be proposed before they are applied. The admin API exposes three routing-config workflow endpoints:
-
-- `POST /api/admin/routing-config/proposals`: dispatches proposal generation to an injected routing-config proposal service.
-- `POST /api/admin/routing-config/preview`: dispatches validation and impact preview to an injected routing-config proposal service.
-- `POST /api/admin/routing-config/apply`: validates the proposal patch, requires `operatorConfirmed: true`, and applies through `RuntimeConfigManager.update()` with the expected revision.
+Runtime routing configuration is edited through the dashboard config forms or `PATCH /api/admin/config`. Decision reviews no longer mutate runtime config; they train local learned routing examples instead.
 
 The built-in proposal module only accepts routing runtime paths by default:
 
@@ -97,7 +93,7 @@ Apply semantics are intentionally conservative:
 
 `logging.rawPrompts` is disabled by default. When enabled, decision records include the latest user prompt and a request snapshot in SQLite and `decisions.jsonl`. Leave it disabled unless operators need richer feedback review because this data can contain private request content.
 
-Dashboard → System → Reset reviewed prompt data clears stored prompt/request context only for reviewed decisions and decisions tied to prompt corrections, then deactivates learned prompt corrections. Decision history and feedback records remain available.
+Dashboard → System → Reset learned routing data clears stored prompt/request context only for reviewed decisions tied to learned routing, then deactivates learned routing examples. Decision history and feedback records remain available.
 
 ## API Keys
 

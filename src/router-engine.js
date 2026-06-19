@@ -56,18 +56,19 @@ export class RouterEngine {
     if (forcedDispatch) decision = { ...decision, mode: "key_shadow", keyForcedModel: forcedDispatch };
 
     if (!forcedDispatch && !this.config.routing.shadowMode) {
-      const correction = this.decisionStore?.getPromptCorrection(normalized.promptHash);
-      if (correction) {
+      const learned = this.decisionStore?.matchLearnedRouting(normalized.latestUserText || normalized.allText || "");
+      if (learned) {
         decision = {
           ...decision,
           configuredTarget: decision.target,
-          correctionSourceRequestId: correction.sourceRequestId,
-          correctionRunId: correction.correctionRunId,
-          correctionConfidence: correction.confidence,
-          correctionRationale: correction.rationale,
-          targetKey: correction.expectedTargetKey,
-          target: correction.expectedTarget,
-          mode: "feedback_corrected",
+          learnedSourceRequestId: learned.requestId,
+          learnedConfidence: learned.confidence,
+          learnedSimilarity: learned.similarity,
+          learnedSecondSimilarity: learned.secondSimilarity,
+          learnedRationale: learned.rationale,
+          targetKey: learned.expectedTargetKey,
+          target: learned.expectedTarget,
+          mode: "learned_classified",
         };
       }
     }

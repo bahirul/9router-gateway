@@ -129,7 +129,7 @@ test("retries judge call without response_format when upstream rejects it", asyn
   assert.equal(review.suggestion.verdict, "correct");
 });
 
-test("router uses accepted prompt corrections for future matching prompts", async (t) => {
+test("router uses learned routing for future similar prompts", async (t) => {
   const store = await createStore(t);
   const { body, normalized } = seedDecision(store, { requestId: "source-request" });
   store.applyDecisionReview("source-request", {
@@ -139,7 +139,7 @@ test("router uses accepted prompt corrections for future matching prompts", asyn
     confidence: 0.95,
     rationale: "planning prompt",
   });
-  assert.equal(store.getPromptCorrection(normalized.promptHash).expectedTargetKey, "planning");
+  assert.equal(store.matchLearnedRouting(normalized.latestUserText).expectedTargetKey, "planning");
 
   const config = mergeDeep(DEFAULT_CONFIG, { classifier: { enabled: false }, upstream: { strictModelValidation: false } });
   const engine = new RouterEngine({
@@ -152,7 +152,7 @@ test("router uses accepted prompt corrections for future matching prompts", asyn
     decisionStore: store,
   });
   const result = await engine.decide({ pathname: "/v1/chat/completions", body, explainOnly: true });
-  assert.equal(result.decision.mode, "feedback_corrected");
+  assert.equal(result.decision.mode, "learned_classified");
   assert.equal(result.decision.targetKey, "planning");
   assert.equal(result.decision.dispatchTarget, "smart-planning");
 });

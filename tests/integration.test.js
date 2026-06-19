@@ -357,7 +357,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   assert.equal(feedbackOnly.feedback.expectedTarget, "smart-small");
   assert.equal(feedbackOnly.reviewed, true);
 
-  const unchangedByFeedback = await fetch(`${baseUrl}/v1/messages`, {
+  const learnedByFeedback = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -365,7 +365,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
       messages: [{ role: "user", content: "Audit production authorization security." }],
     }),
   });
-  assert.equal((await unchangedByFeedback.json()).model, "smart-large");
+  assert.equal((await learnedByFeedback.json()).model, "smart-small");
 
   const feedbackCorrection = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
     method: "PUT",

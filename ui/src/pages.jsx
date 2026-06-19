@@ -627,10 +627,6 @@ export function DecisionsPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchOptions, setBatchOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
   const [batchProgress, setBatchProgress] = useState(null);
-  const [improveOpen, setImproveOpen] = useState(false);
-  const [improveProposal, setImproveProposal] = useState(null);
-  const [improveLoading, setImproveLoading] = useState(false);
-  const [improveApplying, setImproveApplying] = useState(false);
   const query = useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString(), [filters]);
 
   async function load(cursor = "") {
@@ -672,89 +668,17 @@ export function DecisionsPage() {
     return items;
   }
 
-  async function fetchMatchingReviewedDecisions() {
-    const items = [];
-    let cursor = "";
-    do {
-      const value = await api(`/api/admin/decisions?limit=100&${query}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-      items.push(...(value.items || []).filter((item) => item.reviewed));
-      cursor = value.nextCursor || "";
-    } while (cursor);
-    return items;
-  }
-
-  function proposalSamples(items) {
-    return (items || []).map((item) => ({
-      requestId: item.requestId,
-      requestedModel: item.requestedModel || "auto",
-      body: item.request?.body || (item.prompt ? { model: item.requestedModel || "auto", messages: [{ role: "user", content: item.prompt }] } : null),
-      features: item.features,
-      expectedTargetKey: item.promptCorrection?.expectedTargetKey || null,
-      decision: {
-        targetKey: item.targetKey,
-        target: item.target,
-        task: item.task,
-        complexity: item.complexity,
-        score: item.score,
-        confidence: item.confidence,
-      },
-    })).filter((item) => item.body);
-  }
-
-  async function openImproveDialog() {
-    setError("");
-    setImproveOpen(true);
-    setImproveLoading(true);
-    setImproveProposal(null);
-    try {
-      const items = await fetchMatchingReviewedDecisions();
-      const samples = proposalSamples(items);
-      const proposal = await api("/api/admin/routing-config/proposals", {
-        method: "POST",
-        body: JSON.stringify({ samples, goals: "Improve routing config from reviewed decision outcomes." }),
-      });
-      setImproveProposal({ ...proposal, samples });
-    } catch (failure) {
-      setError(failure.message);
-      setImproveOpen(false);
-    } finally {
-      setImproveLoading(false);
-    }
-  }
-
-  async function applyImproveProposal() {
-    if (!improveProposal?.proposal?.changes?.length) return;
-    setImproveApplying(true);
-    try {
-      await api("/api/admin/routing-config/apply", {
-        method: "POST",
-        body: JSON.stringify({
-          expectedRevision: improveProposal.configRevision,
-          patch: improveProposal.patch,
-          operatorConfirmed: true,
-        }),
-      });
-      setImproveOpen(false);
-      setImproveProposal(null);
-      await load();
-    } catch (failure) {
-      setError(failure.message);
-    } finally {
-      setImproveApplying(false);
-    }
-  }
-
   async function markReviewedFromSuggestion(requestId, suggestion) {
     const feedback = reviewFeedbackForSuggestion(suggestion, Number(batchOptions.minConfidence) || 0.7);
     return api(`/api/admin/decisions/${encodeURIComponent(requestId)}/feedback`, {
       method: "PUT",
-      body: JSON.stringify({ ...feedback, createPromptCorrection: false }),
+      body: JSON.stringify({ ...feedback, trainLearning: false }),
     });
   }
 
   async function runBatchReview() {
     setError("");
-    setBatchProgress({ loading: true, current: 0, total: 0, reviewed: 0, corrected: 0, correct: 0, uncertain: 0, skipped: 0, failed: 0, currentId: "", done: false });
+    setBatchProgress({ loading: true, current: 0, total: 0, reviewed: 0, trained: 0, corrected: 0, correct: 0, uncertain: 0, skipped: 0, failed: 0, currentId: "", done: false });
     try {
       const queue = await fetchReviewQueue();
       setBatchProgress((progress) => ({ ...progress, loading: false, total: queue.length }));
@@ -771,24 +695,21 @@ export function DecisionsPage() {
           });
           if (!review.eligible) {
             setBatchProgress((progress) => ({ ...progress, skipped: progress.skipped + 1 }));
-          } else if (review.suggestion?.applyDefault) {
+          } else {
             const result = await api(`/api/admin/decisions/${encodeURIComponent(item.requestId)}/review/apply`, {
               method: "POST",
               body: JSON.stringify({
                 expectedRevision: review.configRevision,
                 suggestion: review.suggestion,
                 minConfidence: Number(batchOptions.minConfidence) || 0.7,
-                enablePromptCorrection: true,
               }),
             });
             updateDecisionRow(result.decision);
-            setBatchProgress((progress) => ({ ...progress, reviewed: progress.reviewed + 1, corrected: progress.corrected + 1 }));
-          } else {
-            const updated = await markReviewedFromSuggestion(item.requestId, review.suggestion);
-            updateDecisionRow(updated);
             setBatchProgress((progress) => ({
               ...progress,
               reviewed: progress.reviewed + 1,
+              trained: progress.trained + (result.learnedExample ? 1 : 0),
+              corrected: progress.corrected + (review.suggestion?.verdict === "incorrect" ? 1 : 0),
               correct: progress.correct + (review.suggestion?.verdict === "correct" ? 1 : 0),
               uncertain: progress.uncertain + (review.suggestion?.verdict === "uncertain" ? 1 : 0),
             }));
@@ -809,7 +730,7 @@ export function DecisionsPage() {
 
   return (
     <>
-      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button><Button variant="secondary" onClick={openImproveDialog}><Icon>tune</Icon>Improve routing config</Button><Button onClick={() => setBatchOpen(true)}><Icon>rate_review</Icon>Review all</Button></div>} />
+      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button><Button onClick={() => setBatchOpen(true)}><Icon>rate_review</Icon>Review all</Button></div>} />
       <ErrorBox error={error} />
       <Card className="mb-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -845,40 +766,9 @@ export function DecisionsPage() {
       </Card>
       {selected && <DecisionDrawer item={selected} onClose={() => setSelected(null)} onUpdate={updateDecision} />}
       <Dialog
-        open={improveOpen}
-        title="Improve routing config"
-        description="Generate a model-proposed routing config patch from reviewed decisions matching the current filters. Nothing changes until you approve and apply it."
-        confirmLabel={improveApplying ? "Applying..." : "Approve and apply"}
-        confirmDisabled={improveLoading || improveApplying || !improveProposal?.proposal?.changes?.length}
-        onCancel={() => { if (!improveApplying) setImproveOpen(false); }}
-        onConfirm={applyImproveProposal}
-      >
-        {improveLoading ? <p className="text-sm text-text-muted">Generating proposal from reviewed matching decisions…</p> : (
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Samples</p><p className="mt-1 text-lg font-semibold">{improveProposal?.samples?.length || 0}</p></div>
-              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Changes</p><p className="mt-1 text-lg font-semibold">{improveProposal?.proposal?.changes?.length || 0}</p></div>
-              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Previewed</p><p className="mt-1 text-lg font-semibold">{improveProposal?.preview?.length || 0}</p></div>
-              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Would change</p><p className="mt-1 text-lg font-semibold">{(improveProposal?.preview || []).filter((item) => item.changed).length}</p></div>
-            </div>
-            {improveProposal?.proposal?.summary && <p className="text-sm text-text-muted">{improveProposal.proposal.summary}</p>}
-            {improveProposal?.proposal?.changes?.length ? (
-              <div className="space-y-3">
-                {improveProposal.proposal.changes.map((change, index) => (
-                  <Card key={`${change.path}-${index}`} title={change.path} subtitle={change.reason || "Model-proposed routing config change"}>
-                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-bg p-3 text-xs">{JSON.stringify(change.value, null, 2)}</pre>
-                  </Card>
-                ))}
-              </div>
-            ) : <Empty title="No safe config proposal" description="Review more matching decisions with stored context before generating routing config changes." />}
-            <p className="text-xs text-text-muted">Reviewed prompt/request context may be sent to the selected upstream judge model. Impact preview is computed by the backend router policy. Apply validates config revision and editable runtime config before saving.</p>
-          </div>
-        )}
-      </Dialog>
-      <Dialog
         open={batchOpen}
         title="Review all matching decisions?"
-        description="Reviews every unreviewed decision matching the current filters, one at a time, using the selected model. Correct and uncertain verdicts are saved as feedback so decisions become reviewed."
+        description="Reviews every unreviewed decision matching the current filters, one at a time, using the selected model. Every eligible verdict is applied; confident correct/incorrect reviews train learned routing for future decisions."
         confirmLabel={batchProgress ? (batchProgress.done ? "Done" : "Reviewing...") : "Start review"}
         confirmDisabled={Boolean(batchProgress && !batchProgress.done)}
         showCancel={!batchProgress || batchProgress.done}
@@ -902,6 +792,7 @@ export function DecisionsPage() {
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-muted">
               <Badge tone="success">Reviewed {batchProgress.reviewed}</Badge>
               <Badge tone="success">Correct {batchProgress.correct}</Badge>
+              <Badge tone="primary">Trained {batchProgress.trained}</Badge>
               <Badge tone="primary">Corrected {batchProgress.corrected}</Badge>
               <Badge tone="warning">Uncertain {batchProgress.uncertain}</Badge>
               <Badge tone="neutral">Skipped {batchProgress.skipped}</Badge>
@@ -922,8 +813,6 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   const [rating, setRating] = useState(item.feedback?.rating || 0);
   const [expectedTarget, setExpectedTarget] = useState(item.feedback?.expectedTarget || "");
   const [note, setNote] = useState(item.feedback?.note || "");
-  const [createPromptCorrection, setCreatePromptCorrection] = useState(false);
-  const [promptCorrectionTouched, setPromptCorrectionTouched] = useState(false);
   const [catalog, setCatalog] = useState([]);
   const [review, setReview] = useState(null);
   const [reviewOptions, setReviewOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
@@ -931,17 +820,10 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   const [reviewError, setReviewError] = useState("");
   const hasFeedback = Boolean(item.feedback);
   useEffect(() => { api("/api/admin/catalog").then((value) => setCatalog(value.models || [])).catch(() => {}); }, []);
-  useEffect(() => {
-    if (!expectedTarget) {
-      setCreatePromptCorrection(false);
-      return;
-    }
-    if (!promptCorrectionTouched) setCreatePromptCorrection(rating === 1 || rating === 2);
-  }, [rating, expectedTarget, promptCorrectionTouched]);
   async function saveFeedback() {
     const updated = await api(`/api/admin/decisions/${encodeURIComponent(item.requestId)}/feedback`, {
       method: "PUT",
-      body: JSON.stringify({ rating, expectedTarget: expectedTarget || null, note: note || null, createPromptCorrection }),
+      body: JSON.stringify({ rating, expectedTarget: expectedTarget || null, note: note || null, trainLearning: Boolean(expectedTarget) }),
     });
     onUpdate(updated);
   }
@@ -952,8 +834,6 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
     setRating(0);
     setExpectedTarget("");
     setNote("");
-    setCreatePromptCorrection(false);
-    setPromptCorrectionTouched(false);
     onUpdate(updated);
   }
   async function reviewDecision() {
@@ -980,7 +860,6 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
           expectedRevision: review.configRevision,
           suggestion: review.suggestion,
           minConfidence: Number(reviewOptions.minConfidence) || 0.7,
-          enablePromptCorrection: true,
         }),
       });
       setRating(value.decision.feedback?.rating || 0);
@@ -1030,16 +909,12 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
                 {!review.eligible ? <p className="text-warning">Skipped: {review.skipReason}</p> : <>
                   <p>Verdict: <strong>{review.suggestion?.verdict}</strong>{review.suggestion?.expectedTargetKey ? <> · suggested <strong>{review.suggestion.expectedTargetKey}</strong></> : null}</p>
                   <p className="mt-1 text-xs text-text-muted">Confidence {review.suggestion?.confidence} · {review.suggestion?.rationale || "No rationale"}</p>
-                  {review.applyResult ? <p className="mt-2 text-xs text-success">Applied feedback and prompt correction.</p> : <Button className="mt-3" disabled={!review.suggestion?.applyDefault || reviewLoading} onClick={applyReview}><Icon>done_all</Icon>Apply suggestion</Button>}
+                  {review.applyResult ? <p className="mt-2 text-xs text-success">Applied feedback and trained learned routing when eligible.</p> : <Button className="mt-3" disabled={!review.suggestion || reviewLoading} onClick={applyReview}><Icon>done_all</Icon>Apply suggestion</Button>}
                 </>}
               </div>}
             </div>
             <Field label="Rating"><div className="flex gap-1">{[1,2,3,4,5].map((value) => <button key={value} className={`text-2xl ${value <= rating ? "text-warning" : "text-surface-3"}`} onClick={() => setRating(value)}>★</button>)}</div></Field>
-            <Field label="Expected target"><Select value={expectedTarget} onChange={(event) => setExpectedTarget(event.target.value)}><option value="">No correction</option>{["smart-small","smart-medium","smart-planning","smart-large","smart-vision"].map((value) => <option key={value}>{value}</option>)}</Select></Field>
-            <label className={`flex items-start gap-3 rounded-[10px] border border-border-subtle bg-bg p-3 text-sm ${expectedTarget ? "" : "opacity-60"}`}>
-              <input type="checkbox" className="mt-1" checked={createPromptCorrection} disabled={!expectedTarget} onChange={(event) => { setPromptCorrectionTouched(true); setCreatePromptCorrection(event.target.checked); }} />
-              <span><span className="font-medium">Create routing correction from this feedback</span><span className="mt-1 block text-xs text-text-muted">Future requests with the same prompt hash can use the selected expected target.</span></span>
-            </label>
+            <Field label="Expected target"><Select value={expectedTarget} onChange={(event) => setExpectedTarget(event.target.value)}><option value="">No learned target</option>{["smart-small","smart-medium","smart-planning","smart-large","smart-vision"].map((value) => <option key={value}>{value}</option>)}</Select></Field>
             <Field label="Note"><textarea className="min-h-24 w-full rounded-[10px] border border-border bg-bg p-3 text-sm outline-none focus:border-primary" value={note} onChange={(event) => setNote(event.target.value)} /></Field>
             <div className="flex gap-3">
               <Button disabled={!rating} onClick={saveFeedback}>Save feedback</Button>
@@ -1591,13 +1466,13 @@ export function SystemPage() {
   }
   async function resetPromptCorrections() {
     setDialog({
-      title: "Reset reviewed prompt data?",
-      description: "Clear stored raw prompts and request context for reviewed decisions, and disable learned routing corrections. Decision history and feedback stay available.",
-      confirmLabel: "Reset reviewed prompt data",
+        title: "Reset learned routing data?",
+        description: "Clear stored raw prompts and request context for reviewed decisions, and disable learned routing examples. Decision history and feedback stay available.",
+        confirmLabel: "Reset learned routing data",
       destructive: true,
       action: async () => {
-        const result = await api("/api/admin/prompt-corrections", { method: "DELETE" });
-        setMessage(`Reviewed prompt data reset (${result.cleared || 0} contexts cleared, ${result.deactivated} corrections disabled)`);
+          const result = await api("/api/admin/learned-routing", { method: "DELETE" });
+          setMessage(`Learned routing reset (${result.cleared || 0} contexts cleared, ${result.deactivated} examples disabled)`);
         await load();
       },
     });

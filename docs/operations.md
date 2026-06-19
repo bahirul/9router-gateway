@@ -31,29 +31,29 @@ Single-decision review:
 - Select a judge model, or leave it blank to use the default `smart-small` judge.
 - Set the minimum confidence threshold, defaulting to `0.7`.
 - Click Review with model to send the stored prompt or request context for that decision to the judge model.
-- Apply the suggestion when the verdict is an incorrect decision above the confidence threshold. This stores low-rating feedback and, when prompt context is available, creates a prompt-hash routing correction for matching future requests.
+- Apply the suggestion to store feedback and, for confident correct or incorrect verdicts with prompt context, train learned routing for similar future requests.
 
 Manual feedback:
 
 - Save a 1–5 star rating, optional expected target, and optional note from the decision drawer.
-- Enable Create routing correction from this feedback when an expected target should be reused for future requests with the same prompt hash.
-- Reset feedback from the drawer to remove that decision's feedback and deactivate the manual prompt correction created from it.
+- Choose an expected target when manual feedback should train learned routing for similar future requests.
+- Reset feedback from the drawer to remove that decision's feedback and deactivate the learned routing example created from it.
 
 Batch review:
 
 - Click Review all from Dashboard → Decisions to review every unreviewed decision matching the current filters.
 - The batch runs one decision at a time with the selected judge model and confidence threshold.
-- Incorrect high-confidence verdicts are applied automatically and can create learned prompt corrections.
-- Correct and uncertain verdicts are saved as feedback so those decisions become reviewed, but they do not create prompt corrections.
+- Confident correct and incorrect verdicts are applied automatically and can train learned routing examples.
+- Uncertain verdicts are saved as feedback so those decisions become reviewed, but they do not train learned routing.
 - Decisions without stored prompt/request context are skipped; failed reviews are counted and the batch continues.
 
 ## Routing Improvement Workflow
 
-Use this workflow when reviewed decisions show a repeated routing miss that should become general policy, not just an exact prompt-hash correction:
+Use this workflow when unreviewed decisions should be judged by a model and turned into learned routing examples:
 
 1. Filter Dashboard → Decisions to the request slice you want to tune, such as a task, target, status, or mode.
 2. Review decisions in that slice and apply feedback until the expected target is recorded on the misses.
-3. Click Improve routing config to generate a config proposal from the reviewed matching decisions.
+3. Click Review all to review each matching decision and train learned routing from confident results.
 4. Read the proposal cards. Each card shows the task class, number of reviewed corrections, current `scoreDelta` and `hardFloor`, and proposed values.
 5. Check the impact preview counts: Reviewed, Corrections, Would change, and Would improve.
 6. Click Approve and apply only after the proposal and preview match operator intent.
@@ -64,9 +64,9 @@ Operational guardrails:
 - The proposal only considers reviewed decisions that match the active Decisions filters.
 - At least two corrections for the same existing task class are required before a task-class tuning change is proposed.
 - Apply validates against the current editable runtime config and uses the config revision captured with the proposal.
-- If apply fails because the config changed, reopen Improve routing config and re-check the new preview before approving again.
+- If review apply fails because config changed, rerun the review before applying again.
 
-Use prompt-hash corrections for one-off prompt fixes. Use routing config proposals only when reviewed decisions show a repeated pattern that should affect future prompts in the same task class.
+Use learned routing for reviewed prompt patterns. Use manual config edits only when you intentionally want to change global routing policy.
 
 ## Storage
 
@@ -74,7 +74,7 @@ Runtime data is stored under `SMART_ROUTER_DATA_DIR`, defaulting to `./data`.
 
 Important files:
 
-- `router.sqlite`: admin password, dashboard overrides, task classes, decisions, stored prompt/request context, feedback, correction runs, prompt corrections, API keys, quotas, and usage.
+- `router.sqlite`: admin password, dashboard overrides, task classes, decisions, stored prompt/request context, feedback, correction runs, learned routing examples, API keys, quotas, and usage.
 - `models/`: semantic classifier cache when `SMART_ROUTER_MODEL_CACHE=./data/models`.
 - `decisions.jsonl` and `feedback.jsonl`: legacy append logs imported once into SQLite when present.
 
@@ -95,12 +95,12 @@ The password is stored in SQLite and survives restarts.
 Dashboard → System includes:
 
 - Refresh model catalog: reloads upstream `/v1/models`.
-- Reset reviewed prompt data: clears stored raw prompts and request context for reviewed decisions and disables learned prompt corrections. Decision history and feedback remain available.
+- Reset learned routing data: clears stored raw prompts and request context for reviewed decisions and disables learned learned routing examples. Decision history and feedback remain available.
 - Purge decision history: deletes stored decisions and feedback.
 - Reset runtime overrides: removes dashboard-managed config overrides and returns to `config.yaml` and environment values immediately.
 - Reset database: deletes SQLite decisions, feedback, API keys, quotas, and dashboard settings after confirming the admin password; the admin password is preserved.
 
-Use Reset reviewed prompt data after finishing review cycles when you want to keep review outcomes but remove the raw prompt/request context used by the judge model. Use Purge decision history only when you no longer need decision, feedback, correction-run, or prompt-correction history.
+Use Reset learned routing data after finishing review cycles when you want to keep review outcomes but remove the raw prompt/request context used by the judge model. Use Purge decision history only when you no longer need decision, feedback, correction-run, or prompt-correction history.
 
 ## Health and Readiness
 
@@ -175,7 +175,7 @@ Batch review uses the active Decisions filters and only skips already-reviewed r
 
 ### Learned correction keeps routing a prompt
 
-Open the source decision and reset its feedback if it was a manual correction, or use Dashboard → System → Reset reviewed prompt data to disable all learned prompt corrections while preserving decision history and feedback.
+Open the source decision and reset its feedback if it was a manual correction, or use Dashboard → System → Reset learned routing data to disable all learned learned routing examples while preserving decision history and feedback.
 
 ### Storage shows degraded
 
