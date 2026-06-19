@@ -453,6 +453,33 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   });
   assert.equal(corrected.headers.get("x-smart-router-target"), "smart-planning");
 
+  const missingPromptCorrectionCsrf = await fetch(`${baseUrl}/api/admin/prompt-corrections`, {
+    method: "DELETE",
+    headers: { Cookie: cookie },
+  });
+  assert.equal(missingPromptCorrectionCsrf.status, 403);
+
+  const resetPromptCorrections = await fetch(`${baseUrl}/api/admin/prompt-corrections`, {
+    method: "DELETE",
+    headers: {
+      Cookie: cookie,
+      "x-csrf-token": session.csrfToken,
+    },
+  }).then((response) => response.json());
+  assert.equal(resetPromptCorrections.reset, true);
+  assert.equal(resetPromptCorrections.deactivated, 1);
+
+  const correctedAfterGlobalReset = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Translate hello to French." }],
+    }),
+  });
+  assert.equal(correctedAfterGlobalReset.headers.get("x-smart-router-target"), "smart-small");
+  assert.equal(correctedAfterGlobalReset.headers.get("x-smart-router-mode"), "active");
+
   const createdKey = await fetch(`${baseUrl}/api/admin/api-keys`, {
     method: "POST",
     headers: {
@@ -511,7 +538,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   });
   assert.equal(relogin.status, 200);
 
-  assert.equal(upstreamRequests.length, 12);
+  assert.equal(upstreamRequests.length, 13);
   assert.ok(upstreamRequests.some((request) => request.body.response_format?.type === "json_object"));
 });
 

@@ -1348,6 +1348,19 @@ export function SystemPage() {
       },
     });
   }
+  async function resetPromptCorrections() {
+    setDialog({
+      title: "Reset learned prompt corrections?",
+      description: "Disable saved prompt/context routing corrections. Decision history and feedback stay available.",
+      confirmLabel: "Reset corrections",
+      destructive: true,
+      action: async () => {
+        const result = await api("/api/admin/prompt-corrections", { method: "DELETE" });
+        setMessage(`Learned prompt corrections reset (${result.deactivated} disabled)`);
+        await load();
+      },
+    });
+  }
   function openDatabaseReset() {
     setDatabaseResetPassword("");
     setDatabaseResetError("");
@@ -1550,6 +1563,7 @@ export function SystemPage() {
               <Button onClick={updatePassword}>Update password</Button>
             </div>
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Refresh model catalog</p><p className="text-xs text-text-muted">Re-check target models and combos in 9Router.</p></div><Button variant="secondary" className="shrink-0" onClick={refreshCatalog}>Refresh</Button></div>
+            <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset learned prompt corrections</p><p className="text-xs text-text-muted">Disable saved prompt/context routing corrections while keeping decisions and feedback.</p></div><Button variant="danger" className="shrink-0" onClick={resetPromptCorrections}>Reset corrections</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Purge decision history</p><p className="text-xs text-text-muted">Delete stored decisions and operator feedback from the database.</p></div><Button variant="danger" className="shrink-0" onClick={resetDecisionHistory}>Purge</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset runtime overrides</p><p className="text-xs text-text-muted">Return to config.yaml and environment values immediately.</p></div><Button variant="danger" className="shrink-0" onClick={resetOverrides}>Reset</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset database</p><p className="text-xs text-text-muted">Delete SQLite decisions, API keys, quotas, and dashboard settings. Admin password is preserved.</p></div><Button variant="danger" className="shrink-0" onClick={openDatabaseReset}>Reset</Button></div>

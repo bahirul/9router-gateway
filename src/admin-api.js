@@ -217,6 +217,18 @@ export function createAdminApi(context) {
         return true;
       }
 
+      if (pathname === "/api/admin/prompt-corrections" && req.method === "DELETE") {
+        const result = store.clearPromptCorrections();
+        if (result.degraded) {
+          metrics.increment("smart_router_prompt_corrections_reset_total", { result: "degraded" });
+          sendJson(res, 503, { error: store.status().error || "prompt corrections reset failed" });
+          return true;
+        }
+        metrics.increment("smart_router_prompt_corrections_reset_total", { result: "success" });
+        sendJson(res, 200, { reset: true, deactivated: result.deactivated });
+        return true;
+      }
+
       if (pathname === "/api/admin/api-keys" && req.method === "GET") {
         sessions.require(req, { csrf: false });
         sendJson(res, 200, { items: store.listApiKeys() });

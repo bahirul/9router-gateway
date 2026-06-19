@@ -236,6 +236,19 @@ test("creates manual routing corrections from feedback only when requested", asy
   assert.equal(store.get("manual-correction-request").promptCorrection.expectedTargetKey, "planning");
   assert.equal(store.list().items.find((item) => item.requestId === "manual-correction-request").reviewed, true);
 
+  const reset = store.clearPromptCorrections();
+  assert.equal(reset.deactivated, 1);
+  assert.equal(store.getPromptCorrection("manual-correction-hash"), null);
+  assert.equal(store.get("manual-correction-request").feedback.expectedTarget, "smart-planning");
+  assert.equal(store.get("manual-correction-request").reviewed, true);
+
+  store.feedbackWithCorrection({
+    requestId: "manual-correction-request",
+    rating: 2,
+    expectedTarget: "smart-planning",
+    note: "needs planning",
+  }, { createPromptCorrection: true, targets });
+
   store.clearFeedback("manual-correction-request");
   assert.equal(store.get("manual-correction-request").feedback, null);
   assert.equal(store.getPromptCorrection("manual-correction-hash"), null);

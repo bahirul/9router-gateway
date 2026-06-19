@@ -591,6 +591,13 @@ export class DecisionStore {
     this.execute(() => this.db.exec(`DELETE FROM promptCorrections; DELETE FROM correctionItems; DELETE FROM correctionRuns; DELETE FROM decisions; DELETE FROM feedback;`));
   }
 
+  clearPromptCorrections() {
+    if (!this.ready) return { deactivated: 0, degraded: true };
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE active=1`).run(now);
+    return { deactivated: Number(result.changes || 0), degraded: false };
+  }
+
   resetDatabase() {
     if (!this.ready) return false;
     try {
