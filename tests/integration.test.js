@@ -468,6 +468,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   }).then((response) => response.json());
   assert.equal(resetPromptCorrections.reset, true);
   assert.equal(resetPromptCorrections.deactivated, 1);
+  assert.equal(resetPromptCorrections.cleared, 2);
 
   const correctedAfterGlobalReset = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",

@@ -255,6 +255,58 @@ test("creates manual routing corrections from feedback only when requested", asy
   assert.equal(store.get("manual-correction-request").reviewed, false);
 });
 
+test("clears stored prompt context only for reviewed decisions", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-clear-reviewed-context-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  for (const requestId of ["reviewed-request", "unreviewed-request"]) {
+    store.decision({
+      requestId,
+      timestamp: new Date().toISOString(),
+      sessionHash: "session",
+      promptHash: `${requestId}-hash`,
+      requestedModel: "auto",
+      target: "smart-medium",
+      targetKey: "medium",
+      task: "coding",
+      complexity: "medium",
+      score: 55,
+      confidence: 0.7,
+      mode: "active",
+      classifierUsed: false,
+      affinityHeld: false,
+      messageCount: 1,
+      toolCount: 0,
+      estimatedTokens: 20,
+      client: "test",
+      prompt: `Prompt for ${requestId}`,
+      request: requestSnapshot({ model: "auto", messages: [{ role: "user", content: `Prompt for ${requestId}` }] }),
+      reasons: ["coding"],
+      features: { ruleScore: 55 },
+    });
+  }
+
+  const targets = { small: "smart-small", medium: "smart-medium", planning: "smart-planning" };
+  store.feedbackWithCorrection({
+    requestId: "reviewed-request",
+    rating: 2,
+    expectedTarget: "smart-planning",
+    note: "needs planning",
+  }, { createPromptCorrection: true, targets });
+
+  const reset = store.clearPromptCorrections();
+  assert.equal(reset.deactivated, 1);
+  assert.equal(reset.cleared, 1);
+  assert.equal(store.getPromptCorrection("reviewed-request-hash"), null);
+  assert.equal(store.get("reviewed-request").prompt, null);
+  assert.equal(store.get("reviewed-request").request, null);
+  assert.equal(store.get("reviewed-request").feedback.expectedTarget, "smart-planning");
+  assert.equal(store.get("unreviewed-request").prompt, "Prompt for unreviewed-request");
+  assert.equal(store.get("unreviewed-request").request.truncated, false);
+});
+
 test("validates manual routing correction inputs", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-manual-correction-validation-"));
   const store = new DecisionStore({ directory, logger: { warn() {} } });

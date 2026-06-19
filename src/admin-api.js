@@ -221,11 +221,11 @@ export function createAdminApi(context) {
         const result = store.clearPromptCorrections();
         if (result.degraded) {
           metrics.increment("smart_router_prompt_corrections_reset_total", { result: "degraded" });
-          sendJson(res, 503, { error: store.status().error || "prompt corrections reset failed" });
+          sendJson(res, 503, { error: store.status().error || "reviewed prompt data reset failed" });
           return true;
         }
         metrics.increment("smart_router_prompt_corrections_reset_total", { result: "success" });
-        sendJson(res, 200, { reset: true, deactivated: result.deactivated });
+        sendJson(res, 200, { reset: true, deactivated: result.deactivated, cleared: result.cleared || 0 });
         return true;
       }
 

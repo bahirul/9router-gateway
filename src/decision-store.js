@@ -594,8 +594,25 @@ export class DecisionStore {
   clearPromptCorrections() {
     if (!this.ready) return { deactivated: 0, degraded: true };
     const now = new Date().toISOString();
-    const result = this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE active=1`).run(now);
-    return { deactivated: Number(result.changes || 0), degraded: false };
+    try {
+      this.db.exec("BEGIN");
+      const reviewedRequestIds = new Set(this.db.prepare(`SELECT requestId FROM feedback`).all().map((row) => row.requestId));
+      for (const row of this.db.prepare(`SELECT sourceRequestId FROM promptCorrections`).all()) reviewedRequestIds.add(row.sourceRequestId);
+      const deactivated = Number(this.db.prepare(`UPDATE promptCorrections SET active=0, updatedAt=? WHERE active=1`).run(now).changes || 0);
+      let cleared = 0;
+      if (reviewedRequestIds.size) {
+        const clearContext = this.db.prepare(`UPDATE decisions SET prompt=NULL, requestJson=NULL WHERE requestId=? AND (prompt IS NOT NULL OR requestJson IS NOT NULL)`);
+        for (const requestId of reviewedRequestIds) cleared += Number(clearContext.run(requestId).changes || 0);
+      }
+      this.db.exec("COMMIT");
+      this.lastError = null;
+      return { deactivated, cleared, degraded: false };
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch {}
+      this.lastError = error;
+      this.logger.warn?.(`[storage] prompt data reset failed: ${error.message}`);
+      return { deactivated: 0, cleared: 0, degraded: true };
+    }
   }
 
   resetDatabase() {
