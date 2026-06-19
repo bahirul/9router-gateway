@@ -1481,6 +1481,19 @@ export function SystemPage() {
       },
     });
   }
+  async function clearAllPromptData() {
+    setDialog({
+      title: "Clear all prompt data?",
+      description: "Remove stored raw prompts and request context from every decision. Decision history, feedback, and learned routing examples stay available, but future model review may be unavailable for cleared decisions.",
+      confirmLabel: "Clear prompt data",
+      destructive: true,
+      action: async () => {
+        const result = await api("/api/admin/prompt-data", { method: "DELETE" });
+        setMessage(`Prompt data cleared for ${result.cleared || 0} decisions`);
+        await load();
+      },
+    });
+  }
   function openDatabaseReset() {
     setDatabaseResetPassword("");
     setDatabaseResetError("");
@@ -1684,6 +1697,7 @@ export function SystemPage() {
             </div>
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Refresh model catalog</p><p className="text-xs text-text-muted">Re-check target models and combos in 9Router.</p></div><Button variant="secondary" className="shrink-0" onClick={refreshCatalog}>Refresh</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset reviewed prompt data</p><p className="text-xs text-text-muted">Clear stored raw prompts and request context for reviewed decisions, and disable learned routing corrections.</p></div><Button variant="danger" className="shrink-0" onClick={resetPromptCorrections}>Reset reviewed prompt data</Button></div>
+            <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Clear all prompt data</p><p className="text-xs text-text-muted">Remove stored raw prompts and request context from every decision while keeping history and feedback.</p></div><Button variant="danger" className="shrink-0" onClick={clearAllPromptData}>Clear prompt data</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Purge decision history</p><p className="text-xs text-text-muted">Delete stored decisions and operator feedback from the database.</p></div><Button variant="danger" className="shrink-0" onClick={resetDecisionHistory}>Purge</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset runtime overrides</p><p className="text-xs text-text-muted">Return to config.yaml and environment values immediately.</p></div><Button variant="danger" className="shrink-0" onClick={resetOverrides}>Reset</Button></div>
             <div className="flex items-start justify-between gap-3 border-t border-border-subtle pt-4"><div className="min-w-0"><p className="font-medium">Reset database</p><p className="text-xs text-text-muted">Delete SQLite decisions, API keys, quotas, and dashboard settings. Admin password is preserved.</p></div><Button variant="danger" className="shrink-0" onClick={openDatabaseReset}>Reset</Button></div>

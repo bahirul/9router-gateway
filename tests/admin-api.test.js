@@ -65,6 +65,34 @@ test("learned routing reset reports degraded storage", async () => {
   assert.deepEqual(metrics, [{ name: "smart_router_learned_routing_reset_total", labels: { result: "degraded" } }]);
 });
 
+test("prompt data reset reports cleared decisions", async () => {
+  const handleAdmin = createAdminApi(baseContext({
+    store: {
+      clearAllPromptData: () => ({ cleared: 3, degraded: false }),
+      status: () => ({ error: null }),
+    },
+  }));
+  const res = response();
+
+  assert.equal(await handleAdmin(request("DELETE"), res, "/api/admin/prompt-data", new URLSearchParams()), true);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { reset: true, cleared: 3 });
+});
+
+test("prompt data reset reports degraded storage", async () => {
+  const handleAdmin = createAdminApi(baseContext({
+    store: {
+      clearAllPromptData: () => ({ cleared: 0, degraded: true }),
+      status: () => ({ error: "storage offline" }),
+    },
+  }));
+  const res = response();
+
+  assert.equal(await handleAdmin(request("DELETE"), res, "/api/admin/prompt-data", new URLSearchParams()), true);
+  assert.equal(res.status, 503);
+  assert.deepEqual(res.body, { error: "storage offline" });
+});
+
 test("decision review proposal endpoint returns success", async () => {
   const calls = [];
   const handleAdmin = createAdminApi(baseContext({

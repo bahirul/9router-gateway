@@ -683,6 +683,19 @@ export class DecisionStore {
 
   clearPromptCorrections() { return this.clearLearnedRouting(); }
 
+  clearAllPromptData() {
+    if (!this.ready) return { cleared: 0, degraded: true };
+    try {
+      const cleared = Number(this.db.prepare(`UPDATE decisions SET prompt=NULL, requestJson=NULL WHERE prompt IS NOT NULL OR requestJson IS NOT NULL`).run().changes || 0);
+      this.lastError = null;
+      return { cleared, degraded: false };
+    } catch (error) {
+      this.lastError = error;
+      this.logger.warn?.(`[storage] all prompt data reset failed: ${error.message}`);
+      return { cleared: 0, degraded: true };
+    }
+  }
+
   getPromptCorrection(promptHash) {
     if (!this.ready || !promptHash) return null;
     const row = this.db.prepare(`

@@ -229,6 +229,16 @@ export function createAdminApi(context) {
         return true;
       }
 
+      if (pathname === "/api/admin/prompt-data" && req.method === "DELETE") {
+        const result = store.clearAllPromptData();
+        if (result.degraded) {
+          sendJson(res, 503, { error: store.status().error || "prompt data reset failed" });
+          return true;
+        }
+        sendJson(res, 200, { reset: true, cleared: result.cleared || 0 });
+        return true;
+      }
+
       if (pathname === "/api/admin/api-keys" && req.method === "GET") {
         sessions.require(req, { csrf: false });
         sendJson(res, 200, { items: store.listApiKeys() });

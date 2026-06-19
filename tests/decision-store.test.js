@@ -312,6 +312,48 @@ test("clears stored prompt context only for reviewed decisions", async (t) => {
   assert.equal(store.get("unreviewed-request").request.truncated, false);
 });
 
+test("clears stored prompt context for all decisions", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-clear-all-context-"));
+  const store = new DecisionStore({ directory, logger: { warn() {} } });
+  await store.init();
+  t.after(() => store.close());
+
+  for (const requestId of ["first-request", "second-request"]) {
+    store.decision({
+      requestId,
+      timestamp: new Date().toISOString(),
+      sessionHash: "session",
+      promptHash: `${requestId}-hash`,
+      requestedModel: "auto",
+      target: "smart-medium",
+      targetKey: "medium",
+      task: "coding",
+      complexity: "medium",
+      score: 55,
+      confidence: 0.7,
+      mode: "active",
+      classifierUsed: false,
+      affinityHeld: false,
+      messageCount: 1,
+      toolCount: 0,
+      estimatedTokens: 20,
+      client: "test",
+      prompt: `Prompt for ${requestId}`,
+      request: requestSnapshot({ model: "auto", messages: [{ role: "user", content: `Prompt for ${requestId}` }] }),
+      reasons: ["coding"],
+      features: { ruleScore: 55 },
+    });
+  }
+
+  const reset = store.clearAllPromptData();
+  assert.equal(reset.cleared, 2);
+  assert.equal(store.get("first-request").prompt, null);
+  assert.equal(store.get("first-request").request, null);
+  assert.equal(store.get("second-request").prompt, null);
+  assert.equal(store.get("second-request").request, null);
+  assert.equal(store.list().items.length, 2);
+});
+
 test("validates manual routing correction inputs", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-manual-correction-validation-"));
   const store = new DecisionStore({ directory, logger: { warn() {} } });
