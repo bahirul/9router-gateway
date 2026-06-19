@@ -86,6 +86,26 @@ npm run smoke:upstream
 - `tests/`: Node test suite for routing, config, admin API, storage, UI API, and correction flows.
 - `scripts/`: evaluation, upstream smoke, and admin password utilities.
 
+## Runtime Config Proposal Modules
+
+Runtime config proposals are the safe-change workflow for dashboard-assisted routing tuning:
+
+- `src/admin-api.js`: exposes `POST /api/admin/routing-config/proposals`, `POST /api/admin/routing-config/preview`, and `POST /api/admin/routing-config/apply`; generation/preview dispatch to the injected proposer, while apply validates and saves through `RuntimeConfigManager.update()`.
+- `src/routing-config-proposer.js`: owns judge prompting, proposal JSON normalization, allowed-path patch construction, candidate validation, and sample-based impact preview.
+- `src/config.js`: owns the authoritative `RuntimeConfigManager.update()` apply path, revision checks, UI-editable path enforcement, validation, persistence, and listener notification.
+- `src/server.js`: wires `RoutingConfigProposer` into the admin API and updates live components when runtime config changes.
+- `tests/routing-config-proposer.test.js`, `tests/admin-api.test.js`, and `tests/config-manager.test.js`: cover proposal validation, endpoint dispatch, stale revision handling, and runtime persistence.
+
+The built-in proposer exposes `generate()`, `propose()`, `buildPatch()`, `validate()`, and `preview()` helpers and defaults to routing-only allowed paths: thresholds, ambiguity margin, virtual profile score biases, routing targets, and `routing.taskClasses`. Keep this list narrow unless the apply path and dashboard UX are also updated; generated patches should never be able to modify secrets, server binding, storage paths, or unrelated security settings.
+
+Safe apply semantics depend on `RuntimeConfigManager.update()` rather than direct writes:
+
+- Callers pass `{ patch, expectedRevision }`; mismatched revisions fail before validation or persistence.
+- `leafPaths(patch)` must be in the UI-editable path set from `src/config.js`.
+- The candidate config is merged over file/env/runtime values, validated, and optionally checked against the current model catalog.
+- Persistence happens only after validation succeeds, using SQLite `meta.runtime_config` when attached or the legacy runtime JSON file otherwise.
+- Change listeners are notified after persistence so in-memory services switch together; failed validation leaves the previous config and revision intact.
+
 ## Decision Review Modules
 
 Decision review starts from stored routing decisions and can create reusable prompt corrections:

@@ -65,6 +65,34 @@ Task classes are initialized from built-in defaults and then stored in SQLite. E
 
 Dashboard reset returns runtime overrides to file and environment values, but keeps the SQLite task-class seed so task classes remain dashboard-managed. Database reset deletes decisions, feedback, API keys, quotas, and dashboard settings while preserving the current admin password.
 
+## Runtime Config Proposals
+
+Runtime routing changes can be proposed before they are applied. The admin API exposes three routing-config workflow endpoints:
+
+- `POST /api/admin/routing-config/proposals`: dispatches proposal generation to an injected routing-config proposal service.
+- `POST /api/admin/routing-config/preview`: dispatches validation and impact preview to an injected routing-config proposal service.
+- `POST /api/admin/routing-config/apply`: validates the proposal patch, requires `operatorConfirmed: true`, and applies through `RuntimeConfigManager.update()` with the expected revision.
+
+The built-in proposal module only accepts routing runtime paths by default:
+
+- `routing.thresholds.medium` and `routing.thresholds.high`.
+- `routing.ambiguityMargin`.
+- `routing.profiles.auto.scoreBias`, `routing.profiles.auto-fast.scoreBias`, and `routing.profiles.auto-quality.scoreBias`.
+- `routing.targets.small`, `routing.targets.medium`, `routing.targets.planning`, `routing.targets.large`, and `routing.targets.vision`.
+- `routing.taskClasses` as one atomic editable value.
+- `classifier.enabled` and `classifier.minimumConfidence`.
+
+The built-in proposer module calls the configured upstream `/v1/chat/completions` endpoint with a strict JSON prompt. The response is normalized to `{ summary, rationale, changes }`, converted into a patch, validated against the allowed paths, merged with the current config, and checked with normal config validation. When the catalog is ready and strict model validation is enabled, proposed routing targets must exist in the upstream 9Router catalog.
+
+Apply semantics are intentionally conservative:
+
+- Proposal and preview requests never persist changes.
+- Apply implementations should use the same runtime config update path as the dashboard, including the current runtime config revision; stale revisions fail with a conflict so operators reload before saving.
+- Only UI-editable runtime paths can be saved, even if a proposal service returns extra fields.
+- Candidate configs are fully validated before persistence, including threshold ordering, classifier ranges, positive timeouts, and routing target checks.
+- Successful applies persist to SQLite `meta.runtime_config` when the store is available, then notify runtime listeners so routing, catalog, classifier, affinity, and logging components use the new config without restart.
+- Failed applies leave the existing runtime config unchanged.
+
 ## Raw Prompt Logging
 
 `logging.rawPrompts` is disabled by default. When enabled, decision records include the latest user prompt and a request snapshot in SQLite and `decisions.jsonl`. Leave it disabled unless operators need richer feedback review because this data can contain private request content.

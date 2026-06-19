@@ -8,6 +8,7 @@ import { AffinityStore } from "./affinity.js";
 import { ModelCatalog } from "./catalog.js";
 import { SemanticClassifier } from "./classifier.js";
 import { DecisionCorrector } from "./decision-corrector.js";
+import { RoutingConfigProposer } from "./routing-config-proposer.js";
 import {
   RuntimeConfigManager,
   mergeDeep,
@@ -415,6 +416,13 @@ export function createSmartRouter({
     getRevision: () => manager.describe().revision,
     fetchImpl,
   });
+  const routingConfigProposer = new RoutingConfigProposer({
+    catalog,
+    getConfig,
+    getRevision: () => manager.describe().revision,
+    metrics,
+    fetchImpl,
+  });
   const sessions = new SessionManager(currentConfig.security);
   sessions.setPasswordVerifier((candidate) => decisionStore.verifyAdminPassword(candidate));
   const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -430,6 +438,7 @@ export function createSmartRouter({
     metrics,
     logStore,
     corrector,
+    routingConfigProposer,
     getConfig,
   });
 

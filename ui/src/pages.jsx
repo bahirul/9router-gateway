@@ -627,6 +627,10 @@ export function DecisionsPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchOptions, setBatchOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
   const [batchProgress, setBatchProgress] = useState(null);
+  const [improveOpen, setImproveOpen] = useState(false);
+  const [improveProposal, setImproveProposal] = useState(null);
+  const [improveLoading, setImproveLoading] = useState(false);
+  const [improveApplying, setImproveApplying] = useState(false);
   const query = useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString(), [filters]);
 
   async function load(cursor = "") {
@@ -666,6 +670,78 @@ export function DecisionsPage() {
       cursor = value.nextCursor || "";
     } while (cursor);
     return items;
+  }
+
+  async function fetchMatchingReviewedDecisions() {
+    const items = [];
+    let cursor = "";
+    do {
+      const value = await api(`/api/admin/decisions?limit=100&${query}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      items.push(...(value.items || []).filter((item) => item.reviewed));
+      cursor = value.nextCursor || "";
+    } while (cursor);
+    return items;
+  }
+
+  function proposalSamples(items) {
+    return (items || []).map((item) => ({
+      requestId: item.requestId,
+      requestedModel: item.requestedModel || "auto",
+      body: item.request?.body || (item.prompt ? { model: item.requestedModel || "auto", messages: [{ role: "user", content: item.prompt }] } : null),
+      features: item.features,
+      expectedTargetKey: item.promptCorrection?.expectedTargetKey || null,
+      decision: {
+        targetKey: item.targetKey,
+        target: item.target,
+        task: item.task,
+        complexity: item.complexity,
+        score: item.score,
+        confidence: item.confidence,
+      },
+    })).filter((item) => item.body);
+  }
+
+  async function openImproveDialog() {
+    setError("");
+    setImproveOpen(true);
+    setImproveLoading(true);
+    setImproveProposal(null);
+    try {
+      const items = await fetchMatchingReviewedDecisions();
+      const samples = proposalSamples(items);
+      const proposal = await api("/api/admin/routing-config/proposals", {
+        method: "POST",
+        body: JSON.stringify({ samples, goals: "Improve routing config from reviewed decision outcomes." }),
+      });
+      setImproveProposal({ ...proposal, samples });
+    } catch (failure) {
+      setError(failure.message);
+      setImproveOpen(false);
+    } finally {
+      setImproveLoading(false);
+    }
+  }
+
+  async function applyImproveProposal() {
+    if (!improveProposal?.proposal?.changes?.length) return;
+    setImproveApplying(true);
+    try {
+      await api("/api/admin/routing-config/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          expectedRevision: improveProposal.configRevision,
+          patch: improveProposal.patch,
+          operatorConfirmed: true,
+        }),
+      });
+      setImproveOpen(false);
+      setImproveProposal(null);
+      await load();
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setImproveApplying(false);
+    }
   }
 
   async function markReviewedFromSuggestion(requestId, suggestion) {
@@ -733,7 +809,7 @@ export function DecisionsPage() {
 
   return (
     <>
-      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button><Button onClick={() => setBatchOpen(true)}><Icon>rate_review</Icon>Review all</Button></div>} />
+      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button><Button variant="secondary" onClick={openImproveDialog}><Icon>tune</Icon>Improve routing config</Button><Button onClick={() => setBatchOpen(true)}><Icon>rate_review</Icon>Review all</Button></div>} />
       <ErrorBox error={error} />
       <Card className="mb-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -768,6 +844,37 @@ export function DecisionsPage() {
         {data.nextCursor && <div className="mt-4 text-center"><Button variant="secondary" onClick={() => load(data.nextCursor)}>Load more</Button></div>}
       </Card>
       {selected && <DecisionDrawer item={selected} onClose={() => setSelected(null)} onUpdate={updateDecision} />}
+      <Dialog
+        open={improveOpen}
+        title="Improve routing config"
+        description="Generate a model-proposed routing config patch from reviewed decisions matching the current filters. Nothing changes until you approve and apply it."
+        confirmLabel={improveApplying ? "Applying..." : "Approve and apply"}
+        confirmDisabled={improveLoading || improveApplying || !improveProposal?.proposal?.changes?.length}
+        onCancel={() => { if (!improveApplying) setImproveOpen(false); }}
+        onConfirm={applyImproveProposal}
+      >
+        {improveLoading ? <p className="text-sm text-text-muted">Generating proposal from reviewed matching decisions…</p> : (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Samples</p><p className="mt-1 text-lg font-semibold">{improveProposal?.samples?.length || 0}</p></div>
+              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Changes</p><p className="mt-1 text-lg font-semibold">{improveProposal?.proposal?.changes?.length || 0}</p></div>
+              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Previewed</p><p className="mt-1 text-lg font-semibold">{improveProposal?.preview?.length || 0}</p></div>
+              <div className="rounded-[10px] bg-bg p-3"><p className="text-xs text-text-muted">Would change</p><p className="mt-1 text-lg font-semibold">{(improveProposal?.preview || []).filter((item) => item.changed).length}</p></div>
+            </div>
+            {improveProposal?.proposal?.summary && <p className="text-sm text-text-muted">{improveProposal.proposal.summary}</p>}
+            {improveProposal?.proposal?.changes?.length ? (
+              <div className="space-y-3">
+                {improveProposal.proposal.changes.map((change, index) => (
+                  <Card key={`${change.path}-${index}`} title={change.path} subtitle={change.reason || "Model-proposed routing config change"}>
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-bg p-3 text-xs">{JSON.stringify(change.value, null, 2)}</pre>
+                  </Card>
+                ))}
+              </div>
+            ) : <Empty title="No safe config proposal" description="Review more matching decisions with stored context before generating routing config changes." />}
+            <p className="text-xs text-text-muted">Reviewed prompt/request context may be sent to the selected upstream judge model. Impact preview is computed by the backend router policy. Apply validates config revision and editable runtime config before saving.</p>
+          </div>
+        )}
+      </Dialog>
       <Dialog
         open={batchOpen}
         title="Review all matching decisions?"

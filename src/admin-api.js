@@ -87,6 +87,51 @@ function validateTargets(config, catalog) {
   }
 }
 
+function methodFrom(service, names) {
+  for (const name of names) {
+    if (typeof service?.[name] === "function") return service[name].bind(service);
+  }
+  return null;
+}
+
+async function callRoutingConfigService(services, action, body, context = {}) {
+  const candidates = services.filter(Boolean);
+  const methods = {
+    proposals: [
+      "generate",
+      "propose",
+      "proposeRoutingConfig",
+      "proposeRoutingConfigChanges",
+      "proposeRoutingConfigUpdate",
+      "proposeRoutingConfigUpdates",
+      "createRoutingConfigProposal",
+      "createRoutingConfigProposals",
+      "generateRoutingConfigProposal",
+      "generateRoutingConfigProposals",
+    ],
+    preview: [
+      "preview",
+      "previewRoutingConfigProposal",
+      "previewRoutingConfig",
+      "previewRoutingConfigChanges",
+      "previewRoutingConfigUpdate",
+      "previewRoutingConfigUpdates",
+    ],
+  }[action];
+
+  for (const service of candidates) {
+    const method = methodFrom(service, methods);
+    if (method) {
+      if (action === "preview") return method(body.samples || body.decisions || [], body.patch || {}, context.currentConfig);
+      return method(body);
+    }
+  }
+
+  const error = new Error("Routing configuration proposals are unavailable");
+  error.status = 503;
+  throw error;
+}
+
 export function createAdminApi(context) {
   const {
     configManager,
@@ -99,7 +144,19 @@ export function createAdminApi(context) {
     metrics,
     getConfig,
     corrector,
+    proposer,
+    routingConfigProposer,
+    routingConfigCorrector,
   } = context;
+  const routingConfigServices = [
+    routingConfigProposer,
+    routingConfigCorrector,
+    proposer,
+    corrector?.routingConfigProposer,
+    corrector?.routingConfigCorrector,
+    corrector?.routingConfig,
+    corrector,
+  ];
 
   return async function handleAdmin(req, res, pathname, searchParams) {
     if (!pathname.startsWith("/api/admin/")) return false;
@@ -178,6 +235,47 @@ export function createAdminApi(context) {
 
       if (pathname === "/api/admin/config" && req.method === "GET") {
         sendJson(res, 200, configManager.describe());
+        return true;
+      }
+
+      if (pathname === "/api/admin/routing-config/proposals" && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        sendJson(res, 200, await callRoutingConfigService(
+          routingConfigServices,
+          "proposals",
+          body,
+          { currentConfig: config },
+        ));
+        return true;
+      }
+
+      if (pathname === "/api/admin/routing-config/preview" && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        sendJson(res, 200, await callRoutingConfigService(
+          routingConfigServices,
+          "preview",
+          body,
+          { currentConfig: config },
+        ));
+        return true;
+      }
+
+      if (pathname === "/api/admin/routing-config/apply" && req.method === "POST") {
+        const body = await readJson(req, config.server.maxBodyBytes);
+        if (body.operatorConfirmed !== true) {
+          sendJson(res, 400, { error: "operatorConfirmed must be true" });
+          return true;
+        }
+        for (const service of routingConfigServices) {
+          if (typeof service?.validate === "function") service.validate(body.patch || {}, config);
+        }
+        const result = await configManager.update(
+          body.patch || {},
+          body.expectedRevision,
+          (candidate) => validateTargets(candidate, catalog),
+        );
+        metrics.increment("smart_router_config_proposal_apply_total", { result: "success" });
+        sendJson(res, 200, { applied: true, config: result });
         return true;
       }
 

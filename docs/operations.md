@@ -47,6 +47,27 @@ Batch review:
 - Correct and uncertain verdicts are saved as feedback so those decisions become reviewed, but they do not create prompt corrections.
 - Decisions without stored prompt/request context are skipped; failed reviews are counted and the batch continues.
 
+## Routing Improvement Workflow
+
+Use this workflow when reviewed decisions show a repeated routing miss that should become general policy, not just an exact prompt-hash correction:
+
+1. Filter Dashboard → Decisions to the request slice you want to tune, such as a task, target, status, or mode.
+2. Review decisions in that slice and apply feedback until the expected target is recorded on the misses.
+3. Click Improve routing config to generate a config proposal from the reviewed matching decisions.
+4. Read the proposal cards. Each card shows the task class, number of reviewed corrections, current `scoreDelta` and `hardFloor`, and proposed values.
+5. Check the impact preview counts: Reviewed, Corrections, Would change, and Would improve.
+6. Click Approve and apply only after the proposal and preview match operator intent.
+
+Operational guardrails:
+
+- Nothing changes during proposal generation or preview; runtime config changes only after explicit approval.
+- The proposal only considers reviewed decisions that match the active Decisions filters.
+- At least two corrections for the same existing task class are required before a task-class tuning change is proposed.
+- Apply validates against the current editable runtime config and uses the config revision captured with the proposal.
+- If apply fails because the config changed, reopen Improve routing config and re-check the new preview before approving again.
+
+Use prompt-hash corrections for one-off prompt fixes. Use routing config proposals only when reviewed decisions show a repeated pattern that should affect future prompts in the same task class.
+
 ## Storage
 
 Runtime data is stored under `SMART_ROUTER_DATA_DIR`, defaulting to `./data`.

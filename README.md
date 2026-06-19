@@ -19,6 +19,7 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 - Prompt-aware routing with deterministic task classes, optional semantic classification, and image detection.
 - Decision history with per-request route explanations, operator feedback, upstream model review, and exact prompt-hash corrections.
 - Batch review tooling for stored decisions so operators can inspect and correct routing behavior faster.
+- Routing config proposal workflow that asks an upstream model for safe, previewable dashboard changes before operators apply them.
 - Privacy controls to reset reviewed prompt context and disable learned prompt corrections without deleting all history.
 - API-key enforcement with named keys, expirations, quotas, active/revoked state, and per-key forced model limits.
 - SQLite-backed dashboard controls for routing, task classifier settings, API keys, decision history, review workflows, and system operations.
@@ -26,7 +27,11 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/routing.png" alt="9Router Gateway routing dashboard screenshot" width="30%" />
-  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/decisions.png" alt="9Router Gateway decisions dashboard screenshot" width="30%" />
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/task-classifier.png" alt="9Router Gateway task classifier dashboard screenshot" width="30%" />
+  <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/decission-review.png" alt="9Router Gateway decision review dashboard screenshot" width="30%" />
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/bahirul/9router-gateway/main/screenshots/system.png" alt="9Router Gateway system dashboard screenshot" width="30%" />
 </p>
 
@@ -73,7 +78,7 @@ Dashboard pages:
 - Overview: request volume, target distribution, latency, tokens, task classes, complexity, and service status.
 - Routing: target models, thresholds, virtual-model profiles, shadow mode, affinity, raw prompt logging, and retention.
 - Task Classifier: deterministic task classes, regexes, semantic labels, score deltas, hard floors, and priority.
-- Decisions: stored routing decisions, request signals, operator feedback, single-decision review, and batch review.
+- Decisions: stored routing decisions, request signals, operator feedback, single-decision review, batch review, and model-assisted routing config proposals.
 - Playground: quick route explanations for OpenAI Chat, OpenAI Responses, and Anthropic Messages payloads.
 - API Keys: gateway client keys, expirations, quotas, active/revoked state, and forced model limits.
 - System: endpoint examples, admin password changes, catalog refresh, privacy reset, history purge, override reset, and database reset.
@@ -98,6 +103,14 @@ Dashboard → Decisions stores smart-routing decisions with the extracted signal
 Applied reviews store operator feedback and can create exact prompt-hash corrections for future matching prompts. Corrections are intentionally narrow: they do not rewrite task-class regexes, thresholds, or routing targets automatically.
 
 Use batch review from the Decisions page when you want to review multiple stored decisions in one workflow. Review features require stored prompt/request context, so enable Dashboard → Routing → Raw prompt logging before collecting decisions you plan to audit. Stored request context is sanitized for sensitive fields before persistence.
+
+## Routing Config Proposals
+
+Dashboard → Decisions → Improve routing config helps operators improve routing configuration without hand-editing YAML or immediately changing live behavior. The gateway uses reviewed decisions matching the active filters as samples, then asks an upstream 9Router model to suggest a small JSON patch against allowed routing paths.
+
+Every proposal is normalized and validated before it can be previewed or applied. The preview compares current routing with the candidate configuration for the supplied samples, showing task, target, complexity, and whether each route would change.
+
+Applying a proposal is an explicit operator action. Accepted changes are saved as dashboard/runtime routing overrides, while rejected or invalid paths are ignored instead of silently mutating task classes, thresholds, or targets.
 
 ## Prompt Context Privacy Reset
 

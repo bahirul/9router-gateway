@@ -107,6 +107,22 @@ Dashboard → System → Reset reviewed prompt data disables learned prompt corr
 
 Batch review is a dashboard workflow, not a separate routing path or server-side batch endpoint. Dashboard → Decisions → Review all calls the same single-decision review, apply, and feedback endpoints sequentially for each unreviewed record that matches the active filters.
 
+## Routing Config Proposals
+
+Reviewed decisions can be used to propose safer routing config changes from observed routing misses. This workflow is intentionally staged:
+
+1. Review decisions from Dashboard → Decisions and apply feedback when the expected target differs from the selected target.
+2. Click Improve routing config with Decisions filters set to the reviewed slice you want to learn from.
+3. Inspect the model-generated config proposal, including each changed path, rationale, and proposed value.
+4. Inspect the backend impact preview before approving. The preview compares current routing with the candidate config for the reviewed matching samples.
+5. Approve and apply only when the preview matches operator intent.
+
+The dashboard proposal path uses the same single-decision review history but does not apply learned changes automatically. The built-in proposer accepts only a conservative set of config paths and rejects invalid regexes, unknown paths, and target changes that fail catalog validation.
+
+Approval writes the proposed patch through the same runtime configuration update path as Dashboard → Routing. The patch includes the expected config revision, so applying fails if another operator changed routing settings after the proposal was generated. Reopen the proposal after a stale-revision failure.
+
+Proposal APIs validate candidate config before use. Allowed proposal paths are limited to routing thresholds, ambiguity margin, virtual-model score biases, routing targets, `routing.taskClasses`, and selected classifier settings; candidate targets must resolve in the 9Router catalog when strict model validation is enabled.
+
 ## Strict Model Validation
 
 When `upstream.strictModelValidation` is enabled, automatic routing fails closed if the chosen target is missing from the 9Router `/v1/models` catalog.
