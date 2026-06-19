@@ -119,6 +119,14 @@ function ErrorBox({ error }) {
   return error ? <div className="mb-4 rounded-[10px] border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</div> : null;
 }
 
+function shortRequestId(value) {
+  return String(value || "").slice(0, 12) || "—";
+}
+
+function copyText(value) {
+  navigator.clipboard?.writeText(String(value || "")).catch(() => {});
+}
+
 function Metric({ label, value, hint, icon, tone = "primary" }) {
   const tones = {
     primary: "bg-primary/10 text-primary",
@@ -616,6 +624,14 @@ export function DecisionsPage() {
     catch (failure) { setError(failure.message); }
   }
 
+  function updateDecision(updated) {
+    setSelected(updated);
+    setData((current) => current ? {
+      ...current,
+      items: current.items.map((item) => item.requestId === updated.requestId ? updated : item),
+    } : current);
+  }
+
   return (
     <>
       <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button>} />
@@ -632,11 +648,12 @@ export function DecisionsPage() {
       <Card className="overflow-hidden">
         {data.items.length === 0 ? <Empty title="No decisions found" description="Send a request through auto, auto-fast, or auto-quality." /> : (
           <div className="-m-5 overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-surface-2 text-xs uppercase tracking-wide text-text-muted"><tr>{["Time","Task","Complexity","Target","Score","Outcome","Latency",""].map((header) => <th key={header} className="px-4 py-3 font-semibold">{header}</th>)}</tr></thead>
+            <table className="w-full min-w-[1050px] text-left text-sm">
+              <thead className="bg-surface-2 text-xs uppercase tracking-wide text-text-muted"><tr>{["Request","Reviewed","Task","Complexity","Target","Score","Outcome","Latency",""].map((header) => <th key={header} className="px-4 py-3 font-semibold">{header}</th>)}</tr></thead>
               <tbody>{data.items.map((item) => (
                 <tr key={item.requestId} className="border-t border-border-subtle hover:bg-surface-2/50">
-                  <td className="px-4 py-3 whitespace-nowrap">{new Date(item.timestamp).toLocaleString()}</td>
+                  <td className="px-4 py-3 whitespace-nowrap"><div className="font-medium">{new Date(item.timestamp).toLocaleString()}</div><button type="button" className="mt-1 font-mono text-xs text-text-muted hover:text-primary" title="Copy request ID" onClick={() => copyText(item.requestId)}>{shortRequestId(item.requestId)}</button></td>
+                  <td className="px-4 py-3"><Badge tone={item.reviewed ? "success" : "neutral"}>{item.reviewed ? "Reviewed" : "Needs review"}</Badge></td>
                   <td className="px-4 py-3"><Badge tone="info">{item.task}</Badge></td>
                   <td className="px-4 py-3"><Badge tone={item.complexity === "high" ? "danger" : item.complexity === "medium" ? "warning" : "success"}>{item.complexity}</Badge></td>
                   <td className="px-4 py-3 font-medium">{item.targetKey}</td>
@@ -651,7 +668,7 @@ export function DecisionsPage() {
         )}
         {data.nextCursor && <div className="mt-4 text-center"><Button variant="secondary" onClick={() => load(data.nextCursor)}>Load more</Button></div>}
       </Card>
-      {selected && <DecisionDrawer item={selected} onClose={() => setSelected(null)} onUpdate={setSelected} />}
+      {selected && <DecisionDrawer item={selected} onClose={() => setSelected(null)} onUpdate={updateDecision} />}
     </>
   );
 }
@@ -749,6 +766,9 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
             ["Mode", item.mode],
             ["Status", item.status || "pending"],
             ["Latency", item.latencyMs != null ? `${item.latencyMs} ms` : "—"],
+            ["Request IP", item.clientIp || "—"],
+            ["User agent", item.userAgent || item.client || "—"],
+            ["Reviewed", item.reviewed ? "yes" : "no"],
             ["Estimated input", `${item.estimatedTokens || 0} tokens`],
             ["Actual tokens", item.tokens?.totalTokens ?? "—"],
             ["Classifier", item.classifierUsed ? "used" : "rules only"],

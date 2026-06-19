@@ -24,7 +24,7 @@ export class RouterEngine {
     return Boolean(this.config.routing.profiles[model]);
   }
 
-  async decide({ pathname, body, headers = {}, explainOnly = false, forcedModel = null }) {
+  async decide({ pathname, body, headers = {}, explainOnly = false, forcedModel = null, clientIp = null }) {
     const normalized = normalizeRequest(pathname, body);
     if (!this.isVirtualModel(normalized.model)) {
       return { passthrough: true, normalized };
@@ -111,6 +111,8 @@ export class RouterEngine {
         body,
         features,
         decision,
+        clientIp,
+        userAgent: headers["user-agent"] || "unknown",
         client: headers["user-agent"] || "unknown",
       });
     }

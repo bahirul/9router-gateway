@@ -165,7 +165,11 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
 
   const anthropic = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "integration-agent/1.0",
+      "X-Forwarded-For": "198.51.100.42, 10.0.0.8",
+    },
     body: JSON.stringify({
       model: "auto",
       messages: [{ role: "user", content: "Audit production authorization security." }],
@@ -333,6 +337,14 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
 
   const manualFeedbackDecision = decisions.items.find((item) => item.prompt?.includes("Audit production authorization security"));
   assert.ok(manualFeedbackDecision);
+  assert.equal(manualFeedbackDecision.clientIp, "198.51.100.42");
+  assert.equal(manualFeedbackDecision.userAgent, "integration-agent/1.0");
+  assert.equal(manualFeedbackDecision.reviewed, false);
+  const manualFeedbackDetail = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}`, {
+    headers: { Cookie: cookie },
+  }).then((response) => response.json());
+  assert.equal(manualFeedbackDetail.clientIp, "198.51.100.42");
+  assert.equal(manualFeedbackDetail.userAgent, "integration-agent/1.0");
   const feedbackOnly = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
     method: "PUT",
     headers: {
@@ -343,6 +355,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     body: JSON.stringify({ rating: 2, expectedTarget: "smart-small", note: "too expensive" }),
   }).then((response) => response.json());
   assert.equal(feedbackOnly.feedback.expectedTarget, "smart-small");
+  assert.equal(feedbackOnly.reviewed, true);
 
   const unchangedByFeedback = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",

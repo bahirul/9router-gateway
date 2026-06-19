@@ -139,6 +139,8 @@ export class DecisionStore {
           toolCount INTEGER,
           estimatedTokens INTEGER,
           client TEXT,
+          clientIp TEXT,
+          userAgent TEXT,
           prompt TEXT,
           requestJson TEXT,
           reasons TEXT,
@@ -251,6 +253,13 @@ export class DecisionStore {
     const columns = new Set(this.db.prepare(`PRAGMA table_info(decisions)`).all().map((column) => column.name));
     if (!columns.has("requestJson")) {
       this.db.exec(`ALTER TABLE decisions ADD COLUMN requestJson TEXT`);
+    }
+    if (!columns.has("clientIp")) {
+      this.db.exec(`ALTER TABLE decisions ADD COLUMN clientIp TEXT`);
+    }
+    if (!columns.has("userAgent")) {
+      this.db.exec(`ALTER TABLE decisions ADD COLUMN userAgent TEXT`);
+      this.db.exec(`UPDATE decisions SET userAgent=client WHERE userAgent IS NULL AND client IS NOT NULL`);
     }
     const apiKeyColumns = new Set(this.db.prepare(`PRAGMA table_info(apiKeys)`).all().map((column) => column.name));
     if (apiKeyColumns.size && !apiKeyColumns.has("displayPrefix")) {
@@ -492,14 +501,14 @@ export class DecisionStore {
       INSERT OR REPLACE INTO decisions (
         requestId,timestamp,sessionHash,promptHash,requestedModel,target,targetKey,task,complexity,
         score,confidence,mode,classifierUsed,affinityHeld,messageCount,toolCount,estimatedTokens,
-        client,prompt,requestJson,reasons,features
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        client,clientIp,userAgent,prompt,requestJson,reasons,features
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       record.requestId, record.timestamp, record.sessionHash, record.promptHash,
       record.requestedModel, record.target, record.targetKey, record.task, record.complexity,
       record.score, record.confidence, record.mode, Number(record.classifierUsed),
       Number(record.affinityHeld), record.messageCount, record.toolCount, record.estimatedTokens,
-      record.client, record.prompt || null, record.request ? JSON.stringify(record.request) : null, JSON.stringify(record.reasons || []),
+      record.client, record.clientIp || null, record.userAgent || record.client || null, record.prompt || null, record.request ? JSON.stringify(record.request) : null, JSON.stringify(record.reasons || []),
       JSON.stringify(record.features || null),
     ));
   }
@@ -649,8 +658,11 @@ export class DecisionStore {
     }
     const size = Math.min(100, Math.max(1, Number(limit) || 50));
     const rows = this.db.prepare(`
-      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt
+      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+      pc.expectedTargetKey AS promptCorrectionTargetKey,pc.expectedTarget AS promptCorrectionTarget,
+      pc.correctionRunId AS promptCorrectionRunId,pc.updatedAt AS promptCorrectionUpdatedAt
       FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+      LEFT JOIN promptCorrections pc ON pc.sourceRequestId=d.requestId AND pc.active=1
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY d.timestamp DESC LIMIT ?
     `).all(...params, size + 1);
@@ -662,8 +674,12 @@ export class DecisionStore {
   get(requestId) {
     if (!this.ready) return null;
     const row = this.db.prepare(`
-      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt
-      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId WHERE d.requestId=?
+      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+      pc.expectedTargetKey AS promptCorrectionTargetKey,pc.expectedTarget AS promptCorrectionTarget,
+      pc.correctionRunId AS promptCorrectionRunId,pc.updatedAt AS promptCorrectionUpdatedAt
+      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+      LEFT JOIN promptCorrections pc ON pc.sourceRequestId=d.requestId AND pc.active=1
+      WHERE d.requestId=?
     `).get(requestId);
     return row ? this.mapRow(row) : null;
   }
@@ -677,6 +693,14 @@ export class DecisionStore {
       features: json(row.features),
       tokens: json(row.tokens),
       request: json(row.requestJson),
+      userAgent: row.userAgent || row.client || null,
+      reviewed: Boolean(row.rating || row.promptCorrectionRunId),
+      promptCorrection: row.promptCorrectionRunId ? {
+        runId: row.promptCorrectionRunId,
+        expectedTargetKey: row.promptCorrectionTargetKey,
+        expectedTarget: row.promptCorrectionTarget,
+        updatedAt: row.promptCorrectionUpdatedAt,
+      } : null,
       feedback: row.rating ? {
         rating: row.rating,
         expectedTarget: row.expectedTarget,

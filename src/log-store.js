@@ -36,7 +36,7 @@ export class LogStore {
     fs.appendFile(target, `${JSON.stringify(record)}\n`, () => {});
   }
 
-  decision({ requestId, sessionId, normalized, body, features, decision, client }) {
+  decision({ requestId, sessionId, normalized, body, features, decision, client, clientIp, userAgent }) {
     const record = {
       timestamp: new Date().toISOString(),
       event: "decision",
@@ -57,6 +57,8 @@ export class LogStore {
       toolCount: normalized.toolCount,
       estimatedTokens: features.estimatedTokens,
       client,
+      clientIp,
+      userAgent: userAgent || client,
       reasons: decision.reasons,
       features: {
         chars: features.chars,

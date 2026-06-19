@@ -54,6 +54,11 @@ function requestHeaders(req) {
   return result;
 }
 
+function clientIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return forwarded || req.socket?.remoteAddress || "unknown";
+}
+
 const CLIENT_AUTH_HEADERS = new Set(["authorization", "x-api-key"]);
 
 function upstreamHeaders(req, upstreamApiKey = "") {
@@ -565,6 +570,7 @@ export function createSmartRouter({
           pathname,
           body,
           headers: requestHeaders(req),
+          clientIp: clientIp(req),
           forcedModel,
         });
         if (routingResult.error) {

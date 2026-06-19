@@ -36,6 +36,8 @@ test("persists decisions, outcomes, feedback, filters, and analytics", async (t)
     toolCount: 0,
     estimatedTokens: 20,
     client: "test",
+    clientIp: "203.0.113.10",
+    userAgent: "store-test-agent",
     prompt: "Plan a migration",
     request: requestSnapshot({
       model: "auto",
@@ -62,6 +64,9 @@ test("persists decisions, outcomes, feedback, filters, and analytics", async (t)
   const item = store.get("request-1");
   assert.equal(item.status, 200);
   assert.equal(item.feedback.rating, 5);
+  assert.equal(item.clientIp, "203.0.113.10");
+  assert.equal(item.userAgent, "store-test-agent");
+  assert.equal(item.reviewed, true);
   assert.deepEqual(item.reasons, ["planning"]);
   assert.equal(item.prompt, "Plan a migration");
   assert.equal(item.request.body.api_key, "[REDACTED]");
@@ -69,6 +74,7 @@ test("persists decisions, outcomes, feedback, filters, and analytics", async (t)
 
   store.clearFeedback("request-1");
   assert.equal(store.get("request-1").feedback, null);
+  assert.equal(store.get("request-1").reviewed, false);
 
   store.feedback({
     requestId: "request-1",
@@ -226,10 +232,14 @@ test("creates manual routing corrections from feedback only when requested", asy
   assert.equal(corrected.promptCorrection, true);
   assert.equal(store.getPromptCorrection("manual-correction-hash").expectedTargetKey, "planning");
   assert.equal(store.getPromptCorrection("manual-correction-hash").correctionRunId, "manual_feedback");
+  assert.equal(store.get("manual-correction-request").reviewed, true);
+  assert.equal(store.get("manual-correction-request").promptCorrection.expectedTargetKey, "planning");
+  assert.equal(store.list().items.find((item) => item.requestId === "manual-correction-request").reviewed, true);
 
   store.clearFeedback("manual-correction-request");
   assert.equal(store.get("manual-correction-request").feedback, null);
   assert.equal(store.getPromptCorrection("manual-correction-hash"), null);
+  assert.equal(store.get("manual-correction-request").reviewed, false);
 });
 
 test("validates manual routing correction inputs", async (t) => {
@@ -394,6 +404,8 @@ test("migrates existing stores to add request context", async (t) => {
   t.after(() => store.close());
   const columns = store.db.prepare(`PRAGMA table_info(decisions)`).all().map((column) => column.name);
   assert.ok(columns.includes("requestJson"));
+  assert.ok(columns.includes("clientIp"));
+  assert.ok(columns.includes("userAgent"));
   const apiKeyColumns = store.db.prepare(`PRAGMA table_info(apiKeys)`).all().map((column) => column.name);
   assert.ok(apiKeyColumns.includes("displayPrefix"));
   assert.ok(apiKeyColumns.includes("secret"));
