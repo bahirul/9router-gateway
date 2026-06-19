@@ -77,6 +77,20 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; font-family: "Inter", system-ui, sans-serif; background: var(--color-bg); }
 button, input, select, textarea { font: inherit; }
+button:not(:disabled),
+a[href],
+select:not(:disabled),
+input[type="button"]:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+summary,
+[role="button"]:not([aria-disabled="true"]),
+label:has(input[type="checkbox"]:not(:disabled)),
+label:has(input[type="radio"]:not(:disabled)) {
+  cursor: pointer;
+}
 .material-symbols-outlined { font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: var(--color-surface-3); border-radius: 99px; }

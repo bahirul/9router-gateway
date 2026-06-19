@@ -764,7 +764,7 @@ export function DecisionsPage() {
               <tbody>{data.items.map((item) => (
                 <tr key={item.requestId} className="border-t border-border-subtle hover:bg-surface-2/50">
                   <td className="px-4 py-3 whitespace-nowrap"><div className="font-medium">{new Date(item.timestamp).toLocaleString()}</div><button type="button" className="mt-1 font-mono text-xs text-text-muted hover:text-primary" title="Copy request ID" onClick={() => copyText(item.requestId)}>{shortRequestId(item.requestId)}</button></td>
-                  <td className="px-4 py-3"><Badge tone={item.reviewed ? "success" : "neutral"}>{item.reviewed ? "Reviewed" : "Needs review"}</Badge></td>
+                  <td className="px-4 py-3"><Badge tone={item.reviewed ? "success" : "neutral"}>{item.reviewed ? "Reviewed" : "Unreviewed"}</Badge></td>
                   <td className="px-4 py-3"><Badge tone="info">{item.task}</Badge></td>
                   <td className="px-4 py-3"><Badge tone={item.complexity === "high" ? "danger" : item.complexity === "medium" ? "warning" : "success"}>{item.complexity}</Badge></td>
                   <td className="px-4 py-3 font-medium">{item.targetKey}</td>
