@@ -10,7 +10,7 @@ Only these environment variables are read:
 NINEROUTER_BASE_URL=http://127.0.0.1:20128
 NINEROUTER_API_KEY=
 SMART_ROUTER_CONFIG=./config.yaml
-SMART_ROUTER_HOST=0.0.0.0
+SMART_ROUTER_HOST=127.0.0.1
 SMART_ROUTER_PORT=20129
 SMART_ROUTER_MAX_BODY_BYTES=134217728
 SMART_ROUTER_DATA_DIR=./data
@@ -29,13 +29,13 @@ Start with:
 cp config.example.yaml config.yaml
 ```
 
-Important defaults from `config.example.yaml`:
+Important defaults from `src/config.js`; `config.example.yaml` mirrors these except that it binds `server.host` to `0.0.0.0` for container-friendly installs:
 
-- Server: `0.0.0.0:20129`, `134217728` max body bytes.
-- Upstream: `NINEROUTER_BASE_URL`, optional `NINEROUTER_API_KEY`, `600000` ms request timeout.
+- Server: `127.0.0.1:20129`, `134217728` max body bytes.
+- Upstream: `http://127.0.0.1:20128`, optional `NINEROUTER_API_KEY`, `600000` ms request timeout, `30000` ms catalog refresh, strict model validation enabled.
 - Routing targets: `smart-small`, `smart-medium`, `smart-planning`, `smart-large`, `smart-vision`.
 - Virtual profiles: `auto`, `auto-fast`, `auto-quality`.
-- Classifier: `Xenova/nli-deberta-v3-xsmall`, cached in `./data/models`.
+- Classifier: `Xenova/nli-deberta-v3-xsmall`, revision `2a4f614a701367a02d51389039afc998faeda637`, cached in `./data/models`.
 - Storage: `./data`, `30` day decision retention.
 - Security: `8` hour dashboard session, API-key enforcement disabled by default.
 
@@ -48,33 +48,41 @@ Startup configuration is built from:
 3. The bootstrap environment variables listed above.
 4. SQLite-backed dashboard overrides in `router.sqlite`.
 
-Dashboard-managed settings are hot-applied without restart. They are stored in `SMART_ROUTER_DATA_DIR/router.sqlite` under the `meta.runtime_config` row.
+Dashboard-managed settings are hot-applied without restart. They are stored in `SMART_ROUTER_DATA_DIR/router.sqlite` under the `meta.runtime_config` row. Older `runtime-config.json` overrides are migrated into SQLite on startup and renamed with a `.migrated` suffix.
 
 ## Dashboard-Managed Settings
 
 The dashboard manages:
 
+- Upstream request timeout and strict model validation.
 - Routing targets, thresholds, profiles, and shadow mode.
 - Task classes and regex patterns.
 - Semantic classifier enablement, timeout, confidence, and local-file mode.
-- Affinity and decision-retention settings.
-- Raw prompt logging.
+- Affinity TTL, affinity entry limit, decision-retention settings, and raw prompt logging.
 - API-key enforcement, key quotas, and per-key model limits.
 
 Task classes are initialized from built-in defaults and then stored in SQLite. Existing deployments with `routing.taskClasses` in `config.yaml` import those classes into SQLite once; new YAML task-class edits are ignored after SQLite has task classes.
 
+Dashboard reset returns runtime overrides to file and environment values, but keeps the SQLite task-class seed so task classes remain dashboard-managed. Database reset deletes decisions, feedback, API keys, quotas, and dashboard settings while preserving the current admin password.
+
+## Raw Prompt Logging
+
+`logging.rawPrompts` is disabled by default. When enabled, decision records include the latest user prompt and a request snapshot in SQLite and `decisions.jsonl`. Leave it disabled unless operators need richer feedback review because this data can contain private request content.
+
+Dashboard → System → Reset reviewed prompt data clears stored prompt/request context only for reviewed decisions and decisions tied to prompt corrections, then deactivates learned prompt corrections. Decision history and feedback records remain available.
+
 ## API Keys
 
-API-key enforcement is controlled by `security.apiKeyAuthEnabled` from the dashboard. When enabled, `/v1/*` requests require a valid active key except operator routes under `/v1/router/`.
+API-key enforcement is controlled by `security.apiKeyAuthEnabled` from the dashboard. When enabled, routed `/v1/*` requests require a valid active gateway key except operator routes under `/v1/router/`.
 
 Each key can have:
 
 - Expiration time or no expiration.
 - Daily or monthly request quota.
 - Active/inactive status.
-- Optional forced model limit.
+- Optional forced model limit from the current 9Router catalog.
 
-Forced model limits dispatch all routable requests for that key to the selected upstream model. Virtual model requests still record routing decisions as `key_shadow` telemetry.
+Forced model limits dispatch routable chat/completion requests for that key to the selected upstream model. `/v1/models` responses are filtered to `auto`, `auto-fast`, `auto-quality`, and the forced model. Virtual model requests still record routing decisions as `key_shadow` telemetry.
 
 ## Admin Password
 
@@ -86,8 +94,13 @@ npm run admin:set-password -- 'a-new-password'
 
 ## Validation Notes
 
+- Dashboard config updates are limited to the UI-editable runtime paths listed above and require the current config revision.
+- `upstream.baseUrl` must be a valid `http` or `https` URL; the stored value is normalized without a trailing slash.
+- When `upstream.strictModelValidation` is enabled and the catalog is ready, routing targets and `routing.shadowTarget` must exist in the 9Router catalog.
 - `routing.thresholds.medium` must be lower than `routing.thresholds.high`.
 - Routing target names and `routing.shadowTarget` must be non-empty.
 - Forced API-key models are validated against the 9Router model catalog when the catalog is ready.
+- API-key expiration values must be valid ISO timestamps or `null`; quotas must use `daily`, `monthly`, or no quota, with positive numeric limits.
 - `classifier.minimumConfidence` must be between `0` and `1`.
-- Timeouts, retention, body size, affinity TTL, and session TTL must be positive numbers.
+- Timeouts, retention, body size, affinity TTL, affinity entry limit, and session TTL must be positive numbers.
+- `security.apiKeyAuthEnabled` must be a boolean.

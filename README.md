@@ -10,15 +10,18 @@
 AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 ```
 
-9Router still owns provider credentials, account rotation, quota handling, format translation, and provider fallback. The gateway adds prompt-aware routing, conversation affinity, request history, API-key controls, and an operator dashboard.
+9Router still owns provider credentials, account rotation, quota handling, format translation, and provider fallback. The gateway adds prompt-aware routing, conversation affinity, request history, API-key controls, decision review, privacy reset tools, and an operator dashboard.
 
 ## Features
 
 - OpenAI-compatible proxy for Chat Completions, Responses, Anthropic Messages, and model-list routes.
 - Virtual smart models: `auto`, `auto-fast`, and `auto-quality`.
 - Prompt-aware routing with deterministic task classes, optional semantic classification, and image detection.
-- SQLite-backed dashboard controls for routing, classifier settings, API keys, decision history, and system operations.
-- API-key enforcement with named keys, expirations, daily/monthly quotas, and per-key forced model limits.
+- Decision history with per-request route explanations, operator feedback, upstream model review, and exact prompt-hash corrections.
+- Batch review tooling for stored decisions so operators can inspect and correct routing behavior faster.
+- Privacy controls to reset reviewed prompt context and disable learned prompt corrections without deleting all history.
+- API-key enforcement with named keys, expirations, quotas, active/revoked state, and per-key forced model limits.
+- SQLite-backed dashboard controls for routing, task classifier settings, API keys, decision history, review workflows, and system operations.
 - Operations-friendly health checks, readiness checks, Prometheus metrics, Docker support, and local SQLite storage.
 
 <p align="center">
@@ -65,6 +68,16 @@ http://127.0.0.1:20129/dashboard
 
 Default admin password: `smart9router`. Change it from the System page after first login.
 
+Dashboard pages:
+
+- Overview: request volume, target distribution, latency, tokens, task classes, complexity, and service status.
+- Routing: target models, thresholds, virtual-model profiles, shadow mode, affinity, raw prompt logging, and retention.
+- Task Classifier: deterministic task classes, regexes, semantic labels, score deltas, hard floors, and priority.
+- Decisions: stored routing decisions, request signals, operator feedback, single-decision review, and batch review.
+- Playground: quick route explanations for OpenAI Chat, OpenAI Responses, and Anthropic Messages payloads.
+- API Keys: gateway client keys, expirations, quotas, active/revoked state, and forced model limits.
+- System: endpoint examples, admin password changes, catalog refresh, privacy reset, history purge, override reset, and database reset.
+
 ## Client URLs
 
 Use these endpoints from clients:
@@ -76,9 +89,25 @@ Anthropic Messages endpoint: http://127.0.0.1:20129/v1/messages
 
 Use `auto`, `auto-fast`, or `auto-quality` as the model for smart routing. Explicit upstream model names pass through unless the API key has a forced model limit.
 
+When dashboard API-key enforcement is enabled, clients must send either `Authorization: Bearer <key>` or `x-api-key: <key>`. These gateway client keys are separate from `NINEROUTER_API_KEY`, which is only used by the gateway when calling upstream 9Router.
+
+## Decision Review
+
+Dashboard → Decisions stores smart-routing decisions with the extracted signals used by the router. Operators can open a decision, add feedback, ask an upstream 9Router model to review the route, preview the suggestion, and apply it when appropriate.
+
+Applied reviews store operator feedback and can create exact prompt-hash corrections for future matching prompts. Corrections are intentionally narrow: they do not rewrite task-class regexes, thresholds, or routing targets automatically.
+
+Use batch review from the Decisions page when you want to review multiple stored decisions in one workflow. Review features require stored prompt/request context, so enable Dashboard → Routing → Raw prompt logging before collecting decisions you plan to audit. Stored request context is sanitized for sensitive fields before persistence.
+
+## Prompt Context Privacy Reset
+
+Use Dashboard → System → Reset reviewed prompt data to clear stored raw prompts and request context for reviewed decisions, and disable learned prompt corrections. Decision history and operator feedback stay available.
+
+For stronger cleanup, Dashboard → System can also purge decision history, reset runtime overrides, or reset the SQLite database while preserving the admin password.
+
 ## Configuration
 
-Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, API-key enforcement, quotas, per-key model limits, and runtime overrides.
+Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, raw prompt logging, API-key enforcement, quotas, per-key model limits, decision review corrections, and runtime overrides.
 
 Only the environment variables shown in `.env.example` are read by the app.
 

@@ -82,9 +82,10 @@ API keys can force all routable requests to one upstream model. This is useful w
 Behavior:
 
 - Explicit model requests are rewritten to the forced model and are not logged as smart-routing decisions.
-- Virtual model requests still run routing, then dispatch to the forced model.
-- Virtual requests with a forced key are logged with mode `key_shadow`.
+- Virtual model requests still run routing, but prompt corrections and global shadow dispatch are skipped.
+- Virtual requests with a forced key dispatch to the forced model and are logged with mode `key_shadow`.
 - `GET /v1/models` is filtered to `auto`, `auto-fast`, `auto-quality`, and the forced model.
+- If strict model validation is enabled, the forced model must resolve in the 9Router catalog or the request fails closed.
 
 Forced models are selected from the upstream catalog in Dashboard → API Keys. Custom values are allowed in the UI, but API validation rejects unknown models when the catalog is ready.
 
@@ -92,9 +93,19 @@ Forced models are selected from the upstream catalog in Dashboard → API Keys. 
 
 Dashboard → Decisions can ask an upstream 9Router model to review one decision record from the decision detail drawer. The review is preview-only until an operator applies the suggested correction.
 
-Only records with stored prompt/request context are eligible. Enable Dashboard → Routing → Raw prompt logging before collecting decisions you want to review; stored request context is sanitized for sensitive fields before persistence.
+The review model receives the configured routing targets, the recorded prediction, and stored request context. It is prompted to return strict JSON with verdict `correct`, `incorrect`, or `uncertain`, an optional `expectedTargetKey`, confidence, and a short rationale. If the upstream rejects JSON response format, the gateway retries once without `response_format` and still parses a JSON object from the response text.
 
-Applying a correction writes operator feedback and stores an exact prompt-hash correction for future matching prompts. Corrections do not rewrite task-class regexes, thresholds, or model targets automatically.
+Only records with stored prompt/request context are eligible for model review. Enable Dashboard → Routing → Raw prompt logging before collecting decisions you want to review; stored request context is sanitized for sensitive fields before persistence. If full request context is present, the review sees that request body; otherwise it can use the stored latest prompt text. Records without either are marked ineligible with `missing_context` and no upstream call is made.
+
+`correct` and `uncertain` reviews are recorded as review results only. They cannot be applied as routing corrections. An `incorrect` review can be applied only when it includes a configured target key and meets the confidence threshold, which defaults to `0.7`.
+
+Applying a correction writes operator feedback and stores an exact prompt-hash correction for future matching prompts. Future virtual-model requests with the same prompt hash use mode `feedback_corrected`, keep the original configured target for audit fields, and dispatch to the corrected target. Corrections do not run during global shadow mode or per-key forced-model routing, and they do not rewrite task-class regexes, thresholds, or model targets automatically.
+
+Operators can also create a prompt correction from manual feedback when they choose a configured expected target and the decision has stored prompt context. Manual and model-reviewed corrections use the same prompt-hash matching behavior.
+
+Dashboard → System → Reset reviewed prompt data disables learned prompt corrections and clears stored raw prompt/request context only for reviewed decisions. Decision history and feedback remain available; unreviewed prompt context is left intact.
+
+Batch review is a dashboard workflow, not a separate routing path or server-side batch endpoint. Dashboard → Decisions → Review all calls the same single-decision review, apply, and feedback endpoints sequentially for each unreviewed record that matches the active filters.
 
 ## Strict Model Validation
 

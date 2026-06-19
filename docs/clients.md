@@ -27,7 +27,9 @@ x-api-key: sk-...
 
 Keys are created from Dashboard → API Keys. A key can be limited by expiration, daily/monthly quota, and forced dispatch model.
 
-Client keys authenticate callers to this gateway only. If the upstream 9Router URL requires authentication, set `NINEROUTER_API_KEY` in the gateway process; client `Authorization` and `x-api-key` values are not forwarded upstream.
+Client keys authenticate callers to this gateway only. The gateway strips client `Authorization` and `x-api-key` headers before proxying. If the upstream 9Router URL requires authentication, set `NINEROUTER_API_KEY` in the gateway process; the gateway forwards that value upstream as `Authorization: Bearer ...`.
+
+Quota is consumed for `/v1` proxy requests after authorization, including `GET /v1/models` when the key has a quota period.
 
 ## OpenAI-Compatible Clients
 
@@ -43,7 +45,7 @@ curl http://127.0.0.1:20129/v1/chat/completions \
   }'
 ```
 
-The gateway also proxies `/v1/responses`, `/v1/models`, and other 9Router-compatible paths.
+The gateway smart-routes `POST` requests whose path ends with `/chat/completions`, `/responses`, or `/messages`. Other `/v1` paths are proxied to upstream 9Router unchanged, except for `GET /v1/models`, which adds virtual model aliases.
 
 ## Codex CLI
 
@@ -107,6 +109,21 @@ curl http://127.0.0.1:20129/v1/messages \
   }'
 ```
 
+## Model Behavior
+
+`auto`, `auto-fast`, and `auto-quality` are virtual aliases. Requests using those aliases are normalized, classified, rewritten to the selected 9Router dispatch model, and logged with a routing decision. Requests using explicit upstream models or combos are passed through without smart routing.
+
+Forced-model API keys override routable virtual aliases and explicit passthrough models. The request is dispatched to the forced model, and smart-routed requests report mode `key_shadow` in the response headers.
+
+Routing normalization currently reads:
+
+- Chat Completions: `messages[].content`
+- Responses: `input`, `input[].content`, `input[].input`, or `input[].text`
+- Anthropic Messages: `system` plus `messages[].content`
+- Tool names from `tools`, image content markers, structured output fields, and reasoning effort fields
+
+Session affinity uses `x-smart-router-session-id` when present. Without that header, it falls back to `prompt_cache_key`, `session_id`, `conversation_id`, `thread_id`, matching metadata fields, or a fingerprint of the first prompt and user agent.
+
 ## Model List Behavior
 
 `GET /v1/models` returns upstream 9Router models plus virtual aliases:
@@ -128,3 +145,5 @@ Routed responses include smart-router headers:
 - `x-smart-router-complexity`
 - `x-smart-router-confidence`
 - `x-smart-router-mode`
+
+These headers are exposed to browsers through `Access-Control-Expose-Headers`. Passthrough requests do not include routing headers.
