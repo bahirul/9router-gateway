@@ -441,7 +441,29 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     body: JSON.stringify({ expectedRevision: decisionReview.configRevision, suggestion: decisionReview.suggestion }),
   }).then((response) => response.json());
   assert.equal(correctionApply.appliedFeedback, true);
-  assert.equal(correctionApply.promptCorrection, true);
+  assert.equal(correctionApply.promptCorrection, false);
+
+  const untrained = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [{ role: "user", content: "Translate hello to French." }],
+    }),
+  });
+  assert.equal(untrained.headers.get("x-smart-router-target"), "smart-small");
+
+  const trainedCorrectionApply = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(decisionWithContext.requestId)}/review/apply`, {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      "Content-Type": "application/json",
+      "x-csrf-token": session.csrfToken,
+    },
+    body: JSON.stringify({ expectedRevision: decisionReview.configRevision, suggestion: decisionReview.suggestion, trainLearning: true }),
+  }).then((response) => response.json());
+  assert.equal(trainedCorrectionApply.appliedFeedback, true);
+  assert.equal(trainedCorrectionApply.promptCorrection, true);
 
   const corrected = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: "POST",
@@ -539,7 +561,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
   });
   assert.equal(relogin.status, 200);
 
-  assert.equal(upstreamRequests.length, 13);
+  assert.equal(upstreamRequests.length, 14);
   assert.ok(upstreamRequests.some((request) => request.body.response_format?.type === "json_object"));
 });
 

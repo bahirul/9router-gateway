@@ -177,7 +177,19 @@ test("persists direct decision review feedback and learned routing", async (t) =
     rationale: "planning prompt",
   }, { minConfidence: 0.7 });
   assert.equal(applied.appliedFeedback, true);
-  assert.equal(applied.promptCorrection, true);
+  assert.equal(applied.promptCorrection, false);
+  assert.equal(store.get("correction-request").feedback.expectedTarget, null);
+  assert.equal(store.getPromptCorrection("prompt-correction-hash"), null);
+
+  const trained = store.applyDecisionReview("correction-request", {
+    verdict: "incorrect",
+    expectedTargetKey: "planning",
+    expectedTarget: "smart-planning",
+    confidence: 0.9,
+    rationale: "planning prompt",
+  }, { minConfidence: 0.7, trainLearning: true });
+  assert.equal(trained.appliedFeedback, true);
+  assert.equal(trained.promptCorrection, true);
   assert.equal(store.get("correction-request").feedback.expectedTarget, "smart-planning");
   assert.equal(store.getPromptCorrection("prompt-correction-hash").expectedTargetKey, "planning");
 });

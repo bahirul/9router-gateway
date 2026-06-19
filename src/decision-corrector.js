@@ -198,7 +198,7 @@ export class DecisionCorrector {
     };
   }
 
-  applyDecisionReview(requestId, { expectedRevision, suggestion, minConfidence = 0.7 } = {}) {
+  applyDecisionReview(requestId, { expectedRevision, suggestion, minConfidence = 0.7, trainLearning = false } = {}) {
     if (expectedRevision !== this.getRevision()) {
       const error = new Error("Configuration changed; rerun review before applying");
       error.status = 409;
@@ -206,6 +206,7 @@ export class DecisionCorrector {
     }
     const result = this.store.applyDecisionReview(requestId, suggestion, {
       minConfidence,
+      trainLearning: Boolean(trainLearning),
     });
     if (!result) {
       const error = new Error("Decision not found");

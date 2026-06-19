@@ -78,8 +78,35 @@ test("reviews and applies one upstream model decision correction", async (t) => 
 
   const applied = corrector.applyDecisionReview("request-1", { expectedRevision: "rev-1", suggestion: review.suggestion });
   assert.equal(applied.appliedFeedback, true);
-  assert.equal(applied.promptCorrection, true);
+  assert.equal(applied.promptCorrection, false);
+  assert.equal(store.get("request-1").feedback.expectedTarget, null);
+
+  const trained = corrector.applyDecisionReview("request-1", { expectedRevision: "rev-1", suggestion: review.suggestion, trainLearning: true });
+  assert.equal(trained.appliedFeedback, true);
+  assert.equal(trained.promptCorrection, true);
   assert.equal(store.get("request-1").feedback.expectedTarget, "smart-planning");
+});
+
+test("applies low confidence incorrect model review as feedback when learning is disabled", async (t) => {
+  const store = await createStore(t);
+  seedDecision(store);
+  const corrector = new DecisionCorrector({
+    store,
+    catalog: { ready: true, models: new Set(["smart-large"]) },
+    metrics: new Metrics(),
+    getConfig: () => DEFAULT_CONFIG,
+    getRevision: () => "rev-1",
+    fetchImpl: async () => { throw new Error("should not call upstream"); },
+  });
+
+  const applied = corrector.applyDecisionReview("request-1", {
+    expectedRevision: "rev-1",
+    suggestion: { verdict: "incorrect", expectedTargetKey: "planning", expectedTarget: "smart-planning", confidence: 0.4, rationale: "weak signal" },
+    minConfidence: 0.7,
+  });
+  assert.equal(applied.appliedFeedback, true);
+  assert.equal(applied.promptCorrection, false);
+  assert.equal(store.get("request-1").feedback.rating, 2);
 });
 
 test("returns ineligible review without upstream call when context is missing", async (t) => {
@@ -138,7 +165,7 @@ test("router uses learned routing for future similar prompts", async (t) => {
     expectedTarget: "smart-planning",
     confidence: 0.95,
     rationale: "planning prompt",
-  });
+  }, { trainLearning: true });
   assert.equal(store.matchLearnedRouting(normalized.latestUserText).expectedTargetKey, "planning");
 
   const config = mergeDeep(DEFAULT_CONFIG, { classifier: { enabled: false }, upstream: { strictModelValidation: false } });

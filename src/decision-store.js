@@ -828,7 +828,7 @@ export class DecisionStore {
     };
   }
 
-	  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7 } = {}) {
+	  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7, trainLearning = false } = {}) {
 	    if (!this.ready) return { requestId, appliedFeedback: false, learnedExample: false, degraded: true };
 	    const decision = this.get(requestId);
 	    if (!decision) return null;
@@ -836,15 +836,15 @@ export class DecisionStore {
 	    const verdict = ["correct", "incorrect", "uncertain"].includes(suggestion?.verdict) ? suggestion.verdict : "uncertain";
 	    const trainIncorrect = verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget && confidence >= minConfidence;
 	    const trainCorrect = verdict === "correct" && decision.targetKey && decision.target && confidence >= minConfidence;
-	    if (!trainIncorrect && !trainCorrect && verdict !== "uncertain") {
+	    if (trainLearning && !trainIncorrect && !trainCorrect && verdict !== "uncertain") {
 	      const error = new Error("suggestion must be correct or incorrect above the confidence threshold, or uncertain");
 	      error.status = 400;
 	      throw error;
 	    }
 	    const now = new Date().toISOString();
 	    const rating = verdict === "correct" ? 5 : verdict === "incorrect" ? 2 : 3;
-	    const expectedTargetKey = trainIncorrect ? suggestion.expectedTargetKey : trainCorrect ? decision.targetKey : null;
-	    const expectedTarget = trainIncorrect ? suggestion.expectedTarget : trainCorrect ? decision.target : null;
+	    const expectedTargetKey = trainLearning ? trainIncorrect ? suggestion.expectedTargetKey : trainCorrect ? decision.targetKey : null : null;
+	    const expectedTarget = trainLearning ? trainIncorrect ? suggestion.expectedTarget : trainCorrect ? decision.target : null : null;
 	    let learnedExample = false;
 	    this.execute(() => {
 	      this.db.prepare(`

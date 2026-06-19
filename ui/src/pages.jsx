@@ -625,7 +625,7 @@ export function DecisionsPage() {
   const [error, setError] = useState("");
   const [catalog, setCatalog] = useState([]);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [batchOptions, setBatchOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
+  const [batchOptions, setBatchOptions] = useState({ judgeModel: "", minConfidence: 0.7, trainLearning: false });
   const [batchProgress, setBatchProgress] = useState(null);
   const query = useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString(), [filters]);
 
@@ -702,6 +702,7 @@ export function DecisionsPage() {
                 expectedRevision: review.configRevision,
                 suggestion: review.suggestion,
                 minConfidence: Number(batchOptions.minConfidence) || 0.7,
+                trainLearning: Boolean(batchOptions.trainLearning),
               }),
             });
             updateDecisionRow(result.decision);
@@ -768,7 +769,7 @@ export function DecisionsPage() {
       <Dialog
         open={batchOpen}
         title="Review all matching decisions?"
-        description="Reviews every unreviewed decision matching the current filters, one at a time, using the selected model. Every eligible verdict is applied; confident correct/incorrect reviews train learned routing for future decisions."
+        description="Reviews every unreviewed decision matching the current filters, one at a time, using the selected model. Every eligible verdict is applied; learned routing is only trained when enabled."
         confirmLabel={batchProgress ? (batchProgress.done ? "Done" : "Reviewing...") : "Start review"}
         confirmDisabled={Boolean(batchProgress && !batchProgress.done)}
         showCancel={!batchProgress || batchProgress.done}
@@ -784,6 +785,7 @@ export function DecisionsPage() {
             <Field label="Judge model"><Select disabled={Boolean(batchProgress && !batchProgress.done)} value={batchOptions.judgeModel} onChange={(event) => setBatchOptions({ ...batchOptions, judgeModel: event.target.value })}><option value="">Default smart-small</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
             <Field label="Min confidence"><Input disabled={Boolean(batchProgress && !batchProgress.done)} type="number" step="0.05" min="0" max="1" value={batchOptions.minConfidence} onChange={(event) => setBatchOptions({ ...batchOptions, minConfidence: event.target.value })} /></Field>
           </div>
+          <label className="flex items-start gap-2 text-sm"><input disabled={Boolean(batchProgress && !batchProgress.done)} type="checkbox" className="mt-1" checked={Boolean(batchOptions.trainLearning)} onChange={(event) => setBatchOptions({ ...batchOptions, trainLearning: event.target.checked })} /><span><span className="font-medium">Create learned routing when eligible</span><span className="block text-xs text-text-muted">Off by default. When enabled, confident model reviews can affect future similar requests.</span></span></label>
           <p className="text-xs text-text-muted">Scope: all unreviewed decisions matching current filters. Missing prompt/request context is skipped.</p>
           {batchProgress && <div className="rounded-[10px] border border-border bg-bg p-3 text-sm">
             <div className="flex items-center justify-between gap-3"><span className="font-medium">Progress</span><span>{batchProgress.current} / {batchProgress.total}</span></div>
@@ -815,7 +817,7 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
   const [note, setNote] = useState(item.feedback?.note || "");
   const [catalog, setCatalog] = useState([]);
   const [review, setReview] = useState(null);
-  const [reviewOptions, setReviewOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
+  const [reviewOptions, setReviewOptions] = useState({ judgeModel: "", minConfidence: 0.7, trainLearning: false });
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState("");
   const hasFeedback = Boolean(item.feedback);
@@ -860,6 +862,7 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
           expectedRevision: review.configRevision,
           suggestion: review.suggestion,
           minConfidence: Number(reviewOptions.minConfidence) || 0.7,
+          trainLearning: Boolean(reviewOptions.trainLearning),
         }),
       });
       setRating(value.decision.feedback?.rating || 0);
@@ -903,13 +906,14 @@ function DecisionDrawer({ item, onClose, onUpdate }) {
                 <Field label="Judge model"><Select value={reviewOptions.judgeModel} onChange={(event) => setReviewOptions({ ...reviewOptions, judgeModel: event.target.value })}><option value="">Default smart-small</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
                 <Field label="Min confidence"><Input type="number" step="0.05" min="0" max="1" value={reviewOptions.minConfidence} onChange={(event) => setReviewOptions({ ...reviewOptions, minConfidence: event.target.value })} /></Field>
               </div>
+              <label className="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={Boolean(reviewOptions.trainLearning)} onChange={(event) => setReviewOptions({ ...reviewOptions, trainLearning: event.target.checked })} /><span><span className="font-medium">Create learned routing when eligible</span><span className="block text-xs text-text-muted">Off by default. When enabled, confident model reviews can affect future similar requests.</span></span></label>
               <div className="mt-3 flex flex-wrap items-center gap-3"><Button variant="secondary" onClick={reviewDecision} disabled={reviewLoading}><Icon>rate_review</Icon>{reviewLoading ? "Reviewing..." : "Review with model"}</Button>{reviewError && <span className="text-xs text-danger">{reviewError}</span>}</div>
               <p className="mt-2 text-xs text-text-muted">Reviews only this decision and sends stored prompt/request context to the selected upstream judge model.</p>
               {review && <div className="mt-3 rounded-[10px] border border-border bg-surface p-3 text-sm">
                 {!review.eligible ? <p className="text-warning">Skipped: {review.skipReason}</p> : <>
                   <p>Verdict: <strong>{review.suggestion?.verdict}</strong>{review.suggestion?.expectedTargetKey ? <> · suggested <strong>{review.suggestion.expectedTargetKey}</strong></> : null}</p>
                   <p className="mt-1 text-xs text-text-muted">Confidence {review.suggestion?.confidence} · {review.suggestion?.rationale || "No rationale"}</p>
-                  {review.applyResult ? <p className="mt-2 text-xs text-success">Applied feedback and trained learned routing when eligible.</p> : <Button className="mt-3" disabled={!review.suggestion || reviewLoading} onClick={applyReview}><Icon>done_all</Icon>Apply suggestion</Button>}
+                  {review.applyResult ? <p className="mt-2 text-xs text-success">{review.applyResult.learnedExample ? "Applied feedback and trained learned routing." : "Applied feedback without learned routing."}</p> : <Button className="mt-3" disabled={!review.suggestion || reviewLoading} onClick={applyReview}><Icon>done_all</Icon>Apply suggestion</Button>}
                 </>}
               </div>}
             </div>
