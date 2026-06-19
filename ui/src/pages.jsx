@@ -127,6 +127,22 @@ function copyText(value) {
   navigator.clipboard?.writeText(String(value || "")).catch(() => {});
 }
 
+function reviewFeedbackForSuggestion(suggestion, minConfidence) {
+  if (suggestion?.verdict === "correct") {
+    return { rating: 5, expectedTarget: null, note: suggestion.rationale ? `Model reviewed this decision as correct: ${suggestion.rationale}` : "Model reviewed this decision as correct." };
+  }
+  if (suggestion?.verdict === "incorrect") {
+    return {
+      rating: 3,
+      expectedTarget: null,
+      note: suggestion.rationale
+        ? `Model suggested a correction below confidence threshold (${suggestion.confidence} < ${minConfidence}): ${suggestion.rationale}`
+        : `Model suggested a correction below confidence threshold (${suggestion.confidence} < ${minConfidence}).`,
+    };
+  }
+  return { rating: 3, expectedTarget: null, note: suggestion?.rationale || "Model was uncertain about this decision." };
+}
+
 function Metric({ label, value, hint, icon, tone = "primary" }) {
   const tones = {
     primary: "bg-primary/10 text-primary",
@@ -607,6 +623,10 @@ export function DecisionsPage() {
   const [filters, setFilters] = useState({ target: "", task: "", complexity: "", status: "", mode: "" });
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState("");
+  const [catalog, setCatalog] = useState([]);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchOptions, setBatchOptions] = useState({ judgeModel: "", minConfidence: 0.7 });
+  const [batchProgress, setBatchProgress] = useState(null);
   const query = useMemo(() => new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString(), [filters]);
 
   async function load(cursor = "") {
@@ -617,6 +637,7 @@ export function DecisionsPage() {
     } catch (failure) { setError(failure.message); }
   }
   useEffect(() => { load(); }, [query]);
+  useEffect(() => { api("/api/admin/catalog").then((value) => setCatalog(value.models || [])).catch(() => {}); }, []);
   if (!data) return <Loading />;
 
   async function openDecision(id) {
@@ -624,17 +645,95 @@ export function DecisionsPage() {
     catch (failure) { setError(failure.message); }
   }
 
-  function updateDecision(updated) {
-    setSelected(updated);
+  function updateDecisionRow(updated) {
     setData((current) => current ? {
       ...current,
       items: current.items.map((item) => item.requestId === updated.requestId ? updated : item),
     } : current);
   }
 
+  function updateDecision(updated) {
+    setSelected(updated);
+    updateDecisionRow(updated);
+  }
+
+  async function fetchReviewQueue() {
+    const items = [];
+    let cursor = "";
+    do {
+      const value = await api(`/api/admin/decisions?limit=100&${query}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      items.push(...(value.items || []).filter((item) => !item.reviewed));
+      cursor = value.nextCursor || "";
+    } while (cursor);
+    return items;
+  }
+
+  async function markReviewedFromSuggestion(requestId, suggestion) {
+    const feedback = reviewFeedbackForSuggestion(suggestion, Number(batchOptions.minConfidence) || 0.7);
+    return api(`/api/admin/decisions/${encodeURIComponent(requestId)}/feedback`, {
+      method: "PUT",
+      body: JSON.stringify({ ...feedback, createPromptCorrection: false }),
+    });
+  }
+
+  async function runBatchReview() {
+    setError("");
+    setBatchProgress({ loading: true, current: 0, total: 0, reviewed: 0, corrected: 0, correct: 0, uncertain: 0, skipped: 0, failed: 0, currentId: "", done: false });
+    try {
+      const queue = await fetchReviewQueue();
+      setBatchProgress((progress) => ({ ...progress, loading: false, total: queue.length }));
+      for (let index = 0; index < queue.length; index += 1) {
+        const item = queue[index];
+        setBatchProgress((progress) => ({ ...progress, current: index, currentId: item.requestId }));
+        try {
+          const review = await api(`/api/admin/decisions/${encodeURIComponent(item.requestId)}/review`, {
+            method: "POST",
+            body: JSON.stringify({
+              judgeModel: batchOptions.judgeModel || undefined,
+              minConfidence: Number(batchOptions.minConfidence) || 0.7,
+            }),
+          });
+          if (!review.eligible) {
+            setBatchProgress((progress) => ({ ...progress, skipped: progress.skipped + 1 }));
+          } else if (review.suggestion?.applyDefault) {
+            const result = await api(`/api/admin/decisions/${encodeURIComponent(item.requestId)}/review/apply`, {
+              method: "POST",
+              body: JSON.stringify({
+                expectedRevision: review.configRevision,
+                suggestion: review.suggestion,
+                minConfidence: Number(batchOptions.minConfidence) || 0.7,
+                enablePromptCorrection: true,
+              }),
+            });
+            updateDecisionRow(result.decision);
+            setBatchProgress((progress) => ({ ...progress, reviewed: progress.reviewed + 1, corrected: progress.corrected + 1 }));
+          } else {
+            const updated = await markReviewedFromSuggestion(item.requestId, review.suggestion);
+            updateDecisionRow(updated);
+            setBatchProgress((progress) => ({
+              ...progress,
+              reviewed: progress.reviewed + 1,
+              correct: progress.correct + (review.suggestion?.verdict === "correct" ? 1 : 0),
+              uncertain: progress.uncertain + (review.suggestion?.verdict === "uncertain" ? 1 : 0),
+            }));
+          }
+        } catch (failure) {
+          setBatchProgress((progress) => ({ ...progress, failed: progress.failed + 1 }));
+        }
+        setBatchProgress((progress) => ({ ...progress, current: index + 1 }));
+      }
+      setBatchProgress((progress) => ({ ...progress, currentId: "", done: true }));
+      await load();
+    } catch (failure) {
+      setError(failure.message);
+      setBatchProgress(null);
+      setBatchOpen(false);
+    }
+  }
+
   return (
     <>
-      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button>} />
+      <PageHeader title="Decisions" description="Queryable routing history, upstream outcomes, tokens, and operator feedback." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => load()}><Icon>refresh</Icon>Refresh</Button><Button onClick={() => setBatchOpen(true)}><Icon>rate_review</Icon>Review all</Button></div>} />
       <ErrorBox error={error} />
       <Card className="mb-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -669,6 +768,41 @@ export function DecisionsPage() {
         {data.nextCursor && <div className="mt-4 text-center"><Button variant="secondary" onClick={() => load(data.nextCursor)}>Load more</Button></div>}
       </Card>
       {selected && <DecisionDrawer item={selected} onClose={() => setSelected(null)} onUpdate={updateDecision} />}
+      <Dialog
+        open={batchOpen}
+        title="Review all matching decisions?"
+        description="Reviews every unreviewed decision matching the current filters, one at a time, using the selected model. Correct and uncertain verdicts are saved as feedback so decisions become reviewed."
+        confirmLabel={batchProgress ? (batchProgress.done ? "Done" : "Reviewing...") : "Start review"}
+        confirmDisabled={Boolean(batchProgress && !batchProgress.done)}
+        showCancel={!batchProgress || batchProgress.done}
+        onCancel={() => {
+          if (batchProgress && !batchProgress.done) return;
+          setBatchOpen(false);
+          setBatchProgress(null);
+        }}
+        onConfirm={() => batchProgress?.done ? (setBatchOpen(false), setBatchProgress(null)) : runBatchReview()}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Judge model"><Select disabled={Boolean(batchProgress && !batchProgress.done)} value={batchOptions.judgeModel} onChange={(event) => setBatchOptions({ ...batchOptions, judgeModel: event.target.value })}><option value="">Default smart-small</option>{catalog.map((model) => <option key={model}>{model}</option>)}</Select></Field>
+            <Field label="Min confidence"><Input disabled={Boolean(batchProgress && !batchProgress.done)} type="number" step="0.05" min="0" max="1" value={batchOptions.minConfidence} onChange={(event) => setBatchOptions({ ...batchOptions, minConfidence: event.target.value })} /></Field>
+          </div>
+          <p className="text-xs text-text-muted">Scope: all unreviewed decisions matching current filters. Missing prompt/request context is skipped.</p>
+          {batchProgress && <div className="rounded-[10px] border border-border bg-bg p-3 text-sm">
+            <div className="flex items-center justify-between gap-3"><span className="font-medium">Progress</span><span>{batchProgress.current} / {batchProgress.total}</span></div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-3"><div className="h-full bg-primary transition-all" style={{ width: `${batchProgress.total ? Math.round((batchProgress.current / batchProgress.total) * 100) : 0}%` }} /></div>
+            {batchProgress.currentId && <p className="mt-2 break-all text-xs text-text-muted">Current: {batchProgress.currentId}</p>}
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-muted">
+              <Badge tone="success">Reviewed {batchProgress.reviewed}</Badge>
+              <Badge tone="success">Correct {batchProgress.correct}</Badge>
+              <Badge tone="primary">Corrected {batchProgress.corrected}</Badge>
+              <Badge tone="warning">Uncertain {batchProgress.uncertain}</Badge>
+              <Badge tone="neutral">Skipped {batchProgress.skipped}</Badge>
+              <Badge tone={batchProgress.failed ? "danger" : "neutral"}>Failed {batchProgress.failed}</Badge>
+            </div>
+          </div>}
+        </div>
+      </Dialog>
     </>
   );
 }
