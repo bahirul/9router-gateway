@@ -291,6 +291,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     headers: { Cookie: cookie },
   }).then((response) => response.json());
   assert.ok(analytics.tokenTotal >= 10);
+  assert.ok(analytics.totalLatencyMs >= 0);
 
   const currentConfig = await fetch(`${baseUrl}/api/admin/config`, {
     headers: { Cookie: cookie },

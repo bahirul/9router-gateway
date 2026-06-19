@@ -111,6 +111,19 @@ function requestVolumeSubtitle(range) {
   return `Daily routed prompts over the last ${range}`;
 }
 
+function formatDuration(ms) {
+  const totalMs = Math.max(0, Number(ms) || 0);
+  if (totalMs < 1000) return `${Math.round(totalMs).toLocaleString()} ms`;
+  if (totalMs < 60000) return `${(totalMs / 1000).toFixed(1)} s`;
+  const totalSeconds = Math.round(totalMs / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) return `${totalMinutes} min ${seconds} sec`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hr ${minutes} min`;
+}
+
 function Loading() {
   return <div className="grid min-h-56 place-items-center text-text-muted"><Icon className="animate-spin text-3xl">progress_activity</Icon></div>;
 }
@@ -220,10 +233,11 @@ export function OverviewPage() {
         )}
       />
       <ErrorBox error={error} />
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Metric label="Requests" value={analytics.total.toLocaleString()} hint={`${analytics.completed} completed`} icon="route" />
         <Metric label="Success rate" value={`${(analytics.successRate * 100).toFixed(1)}%`} hint="Completed upstream requests" icon="check_circle" tone="success" />
         <Metric label="P95 latency" value={`${analytics.p95LatencyMs.toLocaleString()} ms`} hint="End-to-end proxy latency" icon="speed" tone="info" />
+        <Metric label="Task duration" value={formatDuration(analytics.totalLatencyMs)} hint="Sum of completed request latency" icon="timer" tone="info" />
         <Metric label="Tokens" value={analytics.tokenTotal.toLocaleString()} hint={`${status.affinityEntries} active affinities`} icon="data_usage" tone="warning" />
       </div>
       <div className="mb-6 grid gap-4 xl:grid-cols-[2fr_1fr]">

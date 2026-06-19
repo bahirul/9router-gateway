@@ -82,6 +82,11 @@ test("persists decisions, outcomes, feedback, filters, and analytics", async (t)
     expectedTarget: null,
     note: null,
   });
+  const populatedAnalytics = store.analytics();
+  assert.equal(populatedAnalytics.p95LatencyMs, 42);
+  assert.equal(populatedAnalytics.totalLatencyMs, 42);
+  assert.equal(populatedAnalytics.tokenTotal, 25);
+
   store.clearDecisions();
   assert.equal(store.get("request-1"), null);
 
@@ -93,6 +98,7 @@ test("persists decisions, outcomes, feedback, filters, and analytics", async (t)
   assert.equal(analytics.total, 0);
   assert.equal(analytics.successRate, 0);
   assert.equal(analytics.p95LatencyMs, 0);
+  assert.equal(analytics.totalLatencyMs, 0);
   assert.equal(analytics.tokenTotal, 0);
 });
 
@@ -544,5 +550,6 @@ test("returns dashboard-safe empty analytics while storage is degraded", () => {
   const store = new DecisionStore({ directory: "/unused" });
   assert.deepEqual(store.analytics().byTarget, {});
   assert.equal(store.analytics().total, 0);
+  assert.equal(store.analytics().totalLatencyMs, 0);
   assert.equal(store.analytics().degraded, true);
 });

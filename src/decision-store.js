@@ -904,6 +904,7 @@ export class DecisionStore {
         completed: 0,
         successRate: 0,
         p95LatencyMs: 0,
+        totalLatencyMs: 0,
         tokenTotal: 0,
         classifierUsageRate: 0,
         affinityHoldRate: 0,
@@ -924,6 +925,7 @@ export class DecisionStore {
     }, new Map())]);
     const completed = rows.filter((row) => row.status != null);
     const latencies = completed.map((row) => row.latencyMs).filter(Number.isFinite);
+    const totalLatencyMs = latencies.reduce((sum, latencyMs) => sum + latencyMs, 0);
     const tokenTotal = completed.reduce((sum, row) => sum + (json(row.tokens, {})?.totalTokens || 0), 0);
     const buckets = new Map();
     for (const row of rows) {
@@ -940,6 +942,7 @@ export class DecisionStore {
       completed: completed.length,
       successRate: completed.length ? completed.filter((row) => row.status >= 200 && row.status < 400).length / completed.length : 0,
       p95LatencyMs: percentile(latencies, 0.95),
+      totalLatencyMs,
       tokenTotal,
       classifierUsageRate: rows.length ? rows.filter((row) => row.classifierUsed).length / rows.length : 0,
       affinityHoldRate: rows.length ? rows.filter((row) => row.affinityHeld).length / rows.length : 0,
