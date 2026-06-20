@@ -451,6 +451,7 @@ export function TaskClassifierPage() {
   const [classDialog, setClassDialog] = useState(null);
   const [classIdDraft, setClassIdDraft] = useState("");
   const [deleteDialog, setDeleteDialog] = useState(null);
+  const [resetDialog, setResetDialog] = useState(false);
 
   async function load() {
     try {
@@ -511,6 +512,24 @@ export function TaskClassifierPage() {
     setTaskClasses(next);
     closeDeleteDialog();
   }
+  function openResetDialog() { setResetDialog(true); }
+  function closeResetDialog() { setResetDialog(false); }
+  async function confirmResetDialog() {
+    try {
+      const result = await api("/api/admin/config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: state.revision,
+          patch: { routing: { taskClasses: state.defaults?.routing?.taskClasses || {} } },
+        }),
+      });
+      setState(result);
+      setForm(result.config);
+      setSaved(true);
+      setError("");
+      closeResetDialog();
+    } catch (failure) { setError(failure.message); }
+  }
   async function save() {
     try {
       const result = await api("/api/admin/config", {
@@ -563,6 +582,15 @@ export function TaskClassifierPage() {
         onCancel={closeDeleteDialog}
         onConfirm={confirmDeleteDialog}
       />
+      <Dialog
+        open={resetDialog}
+        title="Reset task classes to defaults?"
+        description="Restore the built-in task classifier labels, regex patterns, scoring, and hard floors. Other semantic classifier settings stay unchanged."
+        confirmLabel="Reset to defaults"
+        destructive
+        onCancel={closeResetDialog}
+        onConfirm={confirmResetDialog}
+      />
       <div className="grid gap-5 xl:grid-cols-2">
         <Card title="Semantic classifier" subtitle={`${form.classifier.model} at ${(form.classifier.revision || "unknown").slice(0, 8)}`}>
           <div className="mb-4 flex items-start justify-between gap-3">
@@ -582,7 +610,7 @@ export function TaskClassifierPage() {
           title="Task classes"
           subtitle="Classifier labels, regex signals, scoring, and hard floors."
           className="xl:col-span-2"
-          action={<Button variant="secondary" onClick={() => openClassDialog()}><Icon>add</Icon>Add class</Button>}
+          action={<div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={openResetDialog}><Icon>restart_alt</Icon>Reset to defaults</Button><Button variant="secondary" onClick={() => openClassDialog()}><Icon>add</Icon>Add class</Button></div>}
         >
           <div className="space-y-4">
             {Object.entries(form.routing.taskClasses || {}).map(([id, taskClass]) => {

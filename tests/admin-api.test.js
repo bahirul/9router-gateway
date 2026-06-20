@@ -93,6 +93,23 @@ test("prompt data reset reports degraded storage", async () => {
   assert.deepEqual(res.body, { error: "storage offline" });
 });
 
+test("config endpoint exposes default task classes", async () => {
+  const handleAdmin = createAdminApi(baseContext({
+    configManager: {
+      describe: () => ({
+        revision: "rev-1",
+        config: {},
+        defaults: { routing: { taskClasses: { quick: { semanticLabel: "quick transformation" } } } },
+      }),
+    },
+  }));
+  const res = response();
+
+  assert.equal(await handleAdmin(request("GET"), res, "/api/admin/config", new URLSearchParams()), true);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.defaults.routing.taskClasses.quick.semanticLabel, "quick transformation");
+});
+
 test("decision review proposal endpoint returns success", async () => {
   const calls = [];
   const handleAdmin = createAdminApi(baseContext({

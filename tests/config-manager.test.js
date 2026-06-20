@@ -139,6 +139,7 @@ test("seeds and edits task classes in SQLite runtime config", async (t) => {
   const { store, manager } = await runtimeManagerFixture(t);
   const initial = manager.describe();
   assert.equal(initial.config.routing.taskClasses.general.semanticLabel, "general question");
+  assert.equal(initial.defaults.routing.taskClasses.quick.semanticLabel, "quick transformation");
   assert.equal(store.getRuntimeConfig().routing.taskClasses.general.semanticLabel, "general question");
 
   const nextTaskClasses = {
@@ -156,6 +157,16 @@ test("seeds and edits task classes in SQLite runtime config", async (t) => {
   assert.equal(updated.config.routing.taskClasses.quick, undefined);
   assert.equal(store.getRuntimeConfig().routing.taskClasses.translation.semanticLabel, "translation work");
   assert.equal(store.getRuntimeConfig().routing.taskClasses.quick, undefined);
+
+  const resetTaskClasses = await manager.update({
+    classifier: { minimumConfidence: 0.42 },
+    routing: { taskClasses: updated.defaults.routing.taskClasses },
+  }, updated.revision);
+  assert.equal(resetTaskClasses.config.routing.taskClasses.quick.semanticLabel, "quick transformation");
+  assert.equal(resetTaskClasses.config.routing.taskClasses.translation, undefined);
+  assert.equal(resetTaskClasses.config.classifier.minimumConfidence, 0.42);
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.quick.semanticLabel, "quick transformation");
+  assert.equal(store.getRuntimeConfig().routing.taskClasses.translation, undefined);
 });
 
 test("imports legacy YAML task classes into SQLite once", async (t) => {

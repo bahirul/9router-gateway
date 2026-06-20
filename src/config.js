@@ -294,6 +294,14 @@ function publicConfig(config) {
   };
 }
 
+function publicDefaults() {
+  return {
+    routing: {
+      taskClasses: structuredClone(DEFAULT_TASK_CLASSES),
+    },
+  };
+}
+
 export class RuntimeConfigManager {
   constructor(configPath = process.env.SMART_ROUTER_CONFIG || "./config.yaml") {
     this.configPath = path.resolve(configPath);
@@ -355,6 +363,7 @@ export class RuntimeConfigManager {
       config: publicConfig(this.effective),
       overrides: structuredClone(this.runtimeOverrides),
       locked: lockedFields(),
+      defaults: publicDefaults(),
       runtimePath: this.runtimePath,
       runtimeStore: this.runtimeStoreLabel,
     };
