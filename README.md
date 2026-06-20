@@ -133,6 +133,7 @@ Only the environment variables shown in `.env.example` are read by the app.
 - [Routing](docs/routing.md): virtual models, task classification, semantic classifier, affinity, shadow mode, and forced models.
 - [Operations](docs/operations.md): dashboard, storage, health checks, metrics, Docker, reset actions, and troubleshooting.
 - [Development](docs/development.md): local commands, tests, build, package scripts, and source layout.
+- [Release Notes](RELEASE_NOTES.md): version history, notable changes, and upgrade notes.
 
 ## License
 
