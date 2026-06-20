@@ -1,4 +1,5 @@
 import { packageVersion } from "./package-info.js";
+import { clientIp } from "./client-ip.js";
 
 function sendJson(res, status, body, headers = {}) {
   const payload = Buffer.from(JSON.stringify(body));
@@ -31,10 +32,6 @@ async function readJson(req, maxBytes) {
     error.status = 400;
     throw error;
   }
-}
-
-function clientIp(req) {
-  return req.socket?.remoteAddress || "unknown";
 }
 
 function secureRequest(req) {

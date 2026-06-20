@@ -168,6 +168,7 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
     headers: {
       "Content-Type": "application/json",
       "User-Agent": "integration-agent/1.0",
+      "CF-Connecting-IP": "203.0.113.77",
       "X-Forwarded-For": "198.51.100.42, 10.0.0.8",
     },
     body: JSON.stringify({
@@ -338,13 +339,13 @@ test("sidecar routes virtual models, preserves explicit models, and exposes cont
 
   const manualFeedbackDecision = decisions.items.find((item) => item.prompt?.includes("Audit production authorization security"));
   assert.ok(manualFeedbackDecision);
-  assert.equal(manualFeedbackDecision.clientIp, "198.51.100.42");
+  assert.equal(manualFeedbackDecision.clientIp, "203.0.113.77");
   assert.equal(manualFeedbackDecision.userAgent, "integration-agent/1.0");
   assert.equal(manualFeedbackDecision.reviewed, false);
   const manualFeedbackDetail = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}`, {
     headers: { Cookie: cookie },
   }).then((response) => response.json());
-  assert.equal(manualFeedbackDetail.clientIp, "198.51.100.42");
+  assert.equal(manualFeedbackDetail.clientIp, "203.0.113.77");
   assert.equal(manualFeedbackDetail.userAgent, "integration-agent/1.0");
   const feedbackOnly = await fetch(`${baseUrl}/api/admin/decisions/${encodeURIComponent(manualFeedbackDecision.requestId)}/feedback`, {
     method: "PUT",

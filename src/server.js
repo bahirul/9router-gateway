@@ -18,6 +18,7 @@ import { DecisionStore } from "./decision-store.js";
 import { LogStore } from "./log-store.js";
 import { Metrics } from "./metrics.js";
 import { packageVersion } from "./package-info.js";
+import { clientIp } from "./client-ip.js";
 import { isRoutablePath } from "./request-normalizer.js";
 import { RouterEngine } from "./router-engine.js";
 import { SessionManager } from "./session-manager.js";
@@ -52,11 +53,6 @@ function requestHeaders(req) {
     if (value !== undefined) result[name.toLowerCase()] = Array.isArray(value) ? value.join(", ") : value;
   }
   return result;
-}
-
-function clientIp(req) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  return forwarded || req.socket?.remoteAddress || "unknown";
 }
 
 const CLIENT_AUTH_HEADERS = new Set(["authorization", "x-api-key"]);
