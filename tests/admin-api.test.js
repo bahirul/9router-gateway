@@ -110,39 +110,6 @@ test("config endpoint exposes default task classes", async () => {
   assert.equal(res.body.defaults.routing.taskClasses.quick.semanticLabel, "quick transformation");
 });
 
-test("guardrail audit endpoints list and clear events", async () => {
-  const calls = [];
-  const handleAdmin = createAdminApi(baseContext({
-    sessions: { require: (req, options) => calls.push(options) },
-    store: {
-      listGuardrailEvents: (filters) => {
-        calls.push({ filters });
-        return { items: [{ id: "event-1", result: "blocked" }], nextCursor: null };
-      },
-      clearGuardrailEvents: () => {
-        calls.push({ cleared: true });
-        return true;
-      },
-    },
-  }));
-
-  const listRes = response();
-  assert.equal(await handleAdmin(request("GET"), listRes, "/api/admin/guardrails/events", new URLSearchParams("result=blocked&category=prompt_injection")), true);
-  assert.equal(listRes.status, 200);
-  assert.deepEqual(listRes.body.items, [{ id: "event-1", result: "blocked" }]);
-
-  const deleteRes = response();
-  assert.equal(await handleAdmin(request("DELETE"), deleteRes, "/api/admin/guardrails/events", new URLSearchParams()), true);
-  assert.equal(deleteRes.status, 200);
-  assert.deepEqual(deleteRes.body, { deleted: true });
-  assert.deepEqual(calls, [
-    { csrf: false },
-    { filters: { cursor: undefined, limit: undefined, result: "blocked", category: "prompt_injection", severity: undefined, apiKeyId: undefined } },
-    { csrf: true },
-    { cleared: true },
-  ]);
-});
-
 test("decision review proposal endpoint returns success", async () => {
   const calls = [];
   const handleAdmin = createAdminApi(baseContext({

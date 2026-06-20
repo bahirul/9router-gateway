@@ -19,11 +19,10 @@ import { LogStore } from "./log-store.js";
 import { Metrics } from "./metrics.js";
 import { packageVersion } from "./package-info.js";
 import { clientIp } from "./client-ip.js";
-import { isRoutablePath, normalizeRequest } from "./request-normalizer.js";
+import { isRoutablePath } from "./request-normalizer.js";
 import { RouterEngine } from "./router-engine.js";
 import { SessionManager } from "./session-manager.js";
 import { createStaticUi } from "./static-ui.js";
-import { evaluateGuardrails, mergeGuardrailConfig } from "./guardrails.js";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -121,26 +120,6 @@ function apiKeyNeedsQuotaConsume(authorization) {
 
 function apiKeyForcedModel(authorization) {
   return authorization?.key?.forcedModel || null;
-}
-
-function apiKeyGuardrails(authorization) {
-  return authorization?.key?.guardrails || null;
-}
-
-function apiKeyId(authorization) {
-  return authorization?.key?.id || null;
-}
-
-function rejectGuardrail(res, result) {
-  return jsonResponse(res, 403, {
-    error: {
-      message: "Request blocked by gateway guardrails",
-      type: "smart_router_guardrail_blocked",
-      code: "guardrail_blocked",
-      categories: result.categories,
-      severity: result.severity,
-    },
-  });
 }
 
 function routingHeaders(decisionResult) {
@@ -410,7 +389,6 @@ export function createSmartRouter({
   });
   const storageReady = decisionStore.init().then(async () => {
     if (manager.attachStore) await manager.attachStore(decisionStore, { notify: true });
-    decisionStore.cleanupGuardrailEvents(currentConfig.security.guardrails.auditRetentionDays);
   });
   const logStore = new LogStore(currentConfig.logging, decisionStore);
   const catalog = new ModelCatalog(currentConfig.upstream, metrics, fetchImpl);
@@ -460,7 +438,6 @@ export function createSmartRouter({
     affinity.maxEntries = nextConfig.affinity.maxEntries;
     logStore.rawPrompts = nextConfig.logging.rawPrompts;
     decisionStore.retentionDays = nextConfig.logging.retentionDays;
-    decisionStore.cleanupGuardrailEvents(nextConfig.security.guardrails.auditRetentionDays);
     if (nextConfig.classifier.enabled) classifier.warm();
     await catalog.refresh();
   });
@@ -509,7 +486,6 @@ export function createSmartRouter({
         }
       }
       const forcedModel = apiKeyForcedModel(apiKeyAuthorization);
-      const guardrailOverride = apiKeyGuardrails(apiKeyAuthorization);
 
       if (req.method === "POST" && pathname === "/v1/router/explain") {
         if (!adminAuthorized(req, decisionStore)) {
@@ -585,32 +561,6 @@ export function createSmartRouter({
           return jsonResponse(res, 400, {
             error: { message: "Invalid JSON body", type: "smart_router_invalid_request" },
           });
-        }
-        const guardrailConfig = mergeGuardrailConfig(activeConfig.security.guardrails, guardrailOverride);
-        const normalized = normalizeRequest(pathname, body);
-        const guardrailResult = evaluateGuardrails(guardrailConfig, normalized);
-        metrics.increment("smart_router_guardrail_evaluations_total", { action: guardrailResult.action, result: guardrailResult.allowed ? "allowed" : "blocked" });
-        for (const category of guardrailResult.categories) {
-          metrics.increment("smart_router_guardrail_matches_total", { category, severity: guardrailResult.severity || "unknown" });
-        }
-        decisionStore.recordGuardrailEvent({
-          apiKeyId: apiKeyId(apiKeyAuthorization),
-          clientIp: clientIp(req),
-          userAgent: req.headers["user-agent"] || null,
-          path: pathname,
-          model: body.model || null,
-          action: guardrailResult.action,
-          result: guardrailResult.allowed ? (guardrailResult.matchedRules.length ? "matched" : "allowed") : "blocked",
-          severity: guardrailResult.severity,
-          categories: guardrailResult.categories,
-          matchedRules: guardrailResult.matchedRules,
-          promptHash: normalized.promptHash,
-          guardrailTextTruncated: normalized.guardrailTextTruncated,
-          latencyMs: guardrailResult.latencyMs,
-        });
-        if (!guardrailResult.allowed) {
-          metrics.increment("smart_router_guardrail_blocks_total", { severity: guardrailResult.severity || "unknown" });
-          return rejectGuardrail(res, guardrailResult);
         }
         routingResult = await engine.decide({
           pathname,

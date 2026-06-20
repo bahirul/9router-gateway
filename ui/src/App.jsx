@@ -5,7 +5,6 @@ import { Button, Icon, Input, Layout } from "./components";
 import {
   ApiKeysPage,
   DecisionsPage,
-  GuardrailsPage,
   OverviewPage,
   PlaygroundPage,
   RoutingPage,
@@ -135,7 +134,6 @@ export default function App() {
           <Route path="/dashboard" element={<OverviewPage />} />
           <Route path="/dashboard/routing" element={<RoutingPage />} />
           <Route path="/dashboard/task-classifier" element={<TaskClassifierPage />} />
-          <Route path="/dashboard/guardrails" element={<GuardrailsPage />} />
           <Route path="/dashboard/decisions" element={<DecisionsPage />} />
           <Route path="/dashboard/playground" element={<PlaygroundPage />} />
           <Route path="/dashboard/api-keys" element={<ApiKeysPage />} />

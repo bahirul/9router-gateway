@@ -21,8 +21,7 @@ AI client -> 9Router Gateway :20129 -> 9Router :20128 -> provider
 - Batch review tooling for stored decisions so operators can inspect and correct routing behavior faster.
 - Routing config proposal workflow that asks an upstream model for safe, previewable dashboard changes before operators apply them.
 - Privacy controls to reset reviewed prompt context and disable learned routing examples without deleting all history.
-- Local guardrails for prompt injection, dangerous actions, and security abuse with dashboard controls and audit logs.
-- API-key enforcement with named keys, expirations, quotas, active/revoked state, per-key forced model limits, and guardrail overrides.
+- API-key enforcement with named keys, expirations, quotas, active/revoked state, and per-key forced model limits.
 - SQLite-backed dashboard controls for routing, task classifier settings, API keys, decision history, review workflows, and system operations.
 - Operations-friendly health checks, readiness checks, Prometheus metrics, Docker support, and local SQLite storage.
 
@@ -79,7 +78,6 @@ Dashboard pages:
 - Overview: request volume, target distribution, latency, total task duration, tokens, task classes, complexity, and service status.
 - Routing: target models, thresholds, virtual-model profiles, shadow mode, affinity, raw prompt logging, and retention.
 - Task Classifier: deterministic task classes, regexes, semantic labels, score deltas, hard floors, priority, and reset-to-defaults.
-- Guardrails: global guardrail policy, safe regex rule editing, API-key override visibility, audit filters, and 90-day default audit retention.
 - Decisions: stored routing decisions, request signals, operator feedback, single-decision review, batch review, and model-assisted routing config proposals.
 - Playground: quick route explanations for OpenAI Chat, OpenAI Responses, and Anthropic Messages payloads.
 - API Keys: gateway client keys, expirations, quotas, active/revoked state, and forced model limits.
@@ -124,7 +122,7 @@ When deployed behind Cloudflare or another reverse proxy, recorded decision IPs 
 
 ## Configuration
 
-Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, raw prompt logging, API-key enforcement, quotas, per-key model limits, guardrails, decision review corrections, and runtime overrides.
+Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, raw prompt logging, API-key enforcement, quotas, per-key model limits, decision review corrections, and runtime overrides.
 
 Only the environment variables shown in `.env.example` are read by the app.
 

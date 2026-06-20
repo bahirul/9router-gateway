@@ -1,6 +1,5 @@
 import { packageVersion } from "./package-info.js";
 import { clientIp } from "./client-ip.js";
-import { validateGuardrailsConfig } from "./guardrails.js";
 
 function sendJson(res, status, body, headers = {}) {
   const payload = Buffer.from(JSON.stringify(body));
@@ -64,18 +63,6 @@ function parseForcedModel(value) {
   const forcedModel = value.trim();
   if (!forcedModel) return { forcedModel: null };
   return { forcedModel };
-}
-
-function parseGuardrails(value) {
-  if (value === undefined) return { skipped: true };
-  if (value === null || value === "") return { guardrails: null };
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "guardrails must be an object or null" };
-  try {
-    validateGuardrailsConfig(value, "guardrails");
-  } catch (error) {
-    return { error: error.message };
-  }
-  return { guardrails: value };
 }
 
 function validateForcedModel(forcedModel, catalog) {
@@ -281,13 +268,8 @@ export function createAdminApi(context) {
           sendJson(res, 400, { error: forcedError });
           return true;
         }
-        const guardrails = parseGuardrails(body.guardrails);
-        if (guardrails.error) {
-          sendJson(res, 400, { error: guardrails.error });
-          return true;
-        }
         const expiresAt = body.expiresAt === null || body.expiresAt === undefined ? null : String(body.expiresAt);
-        const created = store.createApiKey({ name: body.name.trim(), expiresAt, ...quota, forcedModel: forced.forcedModel, guardrails: guardrails.guardrails || null });
+        const created = store.createApiKey({ name: body.name.trim(), expiresAt, ...quota, forcedModel: forced.forcedModel });
         metrics.increment("smart_router_api_keys_total", { result: "created" });
         sendJson(res, 200, created);
         return true;
@@ -328,12 +310,6 @@ export function createAdminApi(context) {
           }
           updated = store.setApiKeyForcedModel(id, forced.forcedModel);
         }
-        const guardrails = parseGuardrails(body.guardrails);
-        if (guardrails.error) {
-          sendJson(res, 400, { error: guardrails.error });
-          return true;
-        }
-        if (!guardrails.skipped) updated = store.setApiKeyGuardrails(id, guardrails.guardrails);
         metrics.increment("smart_router_api_keys_total", { result: "updated" });
         sendJson(res, 200, updated);
         return true;
@@ -417,24 +393,6 @@ export function createAdminApi(context) {
 
       if (pathname === "/api/admin/decisions" && req.method === "DELETE") {
         store.clearDecisions();
-        sendJson(res, 200, { deleted: true });
-        return true;
-      }
-
-      if (pathname === "/api/admin/guardrails/events" && req.method === "GET") {
-        sendJson(res, 200, store.listGuardrailEvents({
-          cursor: searchParams.get("cursor") || undefined,
-          limit: searchParams.get("limit") || undefined,
-          result: searchParams.get("result") || undefined,
-          category: searchParams.get("category") || undefined,
-          severity: searchParams.get("severity") || undefined,
-          apiKeyId: searchParams.get("apiKeyId") || undefined,
-        }));
-        return true;
-      }
-
-      if (pathname === "/api/admin/guardrails/events" && req.method === "DELETE") {
-        store.clearGuardrailEvents();
         sendJson(res, 200, { deleted: true });
         return true;
       }

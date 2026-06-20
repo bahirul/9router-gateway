@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
 
-const DEFAULT_GUARDRAIL_TEXT_LIMIT = 32768;
-
 function textFromContent(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -18,54 +16,6 @@ function hasImageContent(content) {
     const type = String(part?.type || "").toLowerCase();
     return type.includes("image") || Boolean(part?.image_url || part?.source?.type === "base64");
   });
-}
-
-function appendText(parts, value, limit) {
-  if (parts.total >= limit || value === undefined || value === null) return;
-  const text = typeof value === "string" ? value : String(value);
-  if (!text.trim()) return;
-  const remaining = limit - parts.total;
-  parts.values.push(text.slice(0, remaining));
-  parts.total += Math.min(text.length, remaining);
-  if (text.length > remaining) parts.truncated = true;
-}
-
-function collectSchemaText(value, parts, limit, depth = 0) {
-  if (parts.total >= limit || depth > 8 || value === undefined || value === null) return;
-  if (typeof value === "string") {
-    appendText(parts, value, limit);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) collectSchemaText(item, parts, limit, depth + 1);
-    return;
-  }
-  if (typeof value !== "object") return;
-  for (const [key, item] of Object.entries(value)) {
-    if (["name", "title", "description", "enum", "const"].includes(key)) collectSchemaText(item, parts, limit, depth + 1);
-    else if (typeof item === "object") collectSchemaText(item, parts, limit, depth + 1);
-  }
-}
-
-function collectToolText(tools, parts, limit) {
-  if (!Array.isArray(tools)) return;
-  for (const tool of tools) {
-    appendText(parts, tool?.function?.name || tool?.name || tool?.type, limit);
-    appendText(parts, tool?.function?.description || tool?.description, limit);
-    collectSchemaText(tool?.function?.parameters || tool?.input_schema || tool?.schema, parts, limit);
-  }
-}
-
-function buildGuardrailText(body, messages, tools, limit = DEFAULT_GUARDRAIL_TEXT_LIMIT) {
-  const parts = { values: [], total: 0, truncated: false };
-  for (const message of messages) appendText(parts, message.text, limit);
-  appendText(parts, body.instructions, limit);
-  collectToolText(tools, parts, limit);
-  collectSchemaText(body.response_format || body.text?.format || body.output_schema, parts, limit);
-  return {
-    text: parts.values.filter(Boolean).join("\n"),
-    truncated: parts.truncated || parts.total >= limit,
-  };
 }
 
 function normalizeOpenAI(body) {
@@ -130,7 +80,6 @@ export function normalizeRequest(pathname, body) {
   const systemText = firstMeaningful(messages, "system");
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const reasoningEffort = body.reasoning_effort || body.reasoning?.effort || body.thinking?.type || null;
-  const guardrail = buildGuardrailText(body, messages, tools);
 
   return {
     format,
@@ -144,8 +93,6 @@ export function normalizeRequest(pathname, body) {
     userTurnCount: messages.filter((message) => ["user", "input"].includes(message.role)).length,
     toolCount: tools.length,
     toolNames: tools.map((tool) => tool?.function?.name || tool?.name || tool?.type).filter(Boolean),
-    guardrailText: guardrail.text,
-    guardrailTextTruncated: guardrail.truncated,
     hasImage: messages.some((message) => message.hasImage),
     hasStructuredOutput: Boolean(body.response_format || body.text?.format || body.output_schema),
     reasoningEffort,

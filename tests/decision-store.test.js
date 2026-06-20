@@ -135,10 +135,6 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(forced.forcedModel, "model-a");
   assert.equal(store.authorizeApiKey(created.secret).key.forcedModel, "model-a");
 
-  const guardrailed = store.setApiKeyGuardrails(created.id, { enabled: false, action: "block", severityThreshold: "high", categories: {}, ruleOverrides: {}, rules: [] });
-  assert.equal(guardrailed.guardrails.enabled, false);
-  assert.equal(store.authorizeApiKey(created.secret).key.guardrails.enabled, false);
-
   const expired = store.createApiKey({ name: "Expired", expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.equal(expired.name, "Expired");
   assert.equal(store.verifyApiKey(expired.secret), false);
@@ -556,46 +552,4 @@ test("returns dashboard-safe empty analytics while storage is degraded", () => {
   assert.equal(store.analytics().total, 0);
   assert.equal(store.analytics().totalLatencyMs, 0);
   assert.equal(store.analytics().degraded, true);
-});
-
-test("stores, filters, prunes, and clears guardrail audit events", async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-guardrail-events-"));
-  const store = new DecisionStore({ directory, logger: { warn() {} } });
-  await store.init();
-  t.after(() => store.close());
-
-  store.recordGuardrailEvent({
-    timestamp: "2026-06-20T00:00:00.000Z",
-    apiKeyId: "key-1",
-    path: "/v1/chat/completions",
-    model: "auto",
-    action: "block",
-    result: "blocked",
-    severity: "high",
-    categories: ["prompt_injection"],
-    matchedRules: ["prompt-injection-ignore-instructions"],
-    promptHash: "abc123",
-    guardrailTextTruncated: true,
-    latencyMs: 1.5,
-  });
-  store.recordGuardrailEvent({
-    timestamp: "2026-06-19T00:00:00.000Z",
-    path: "/v1/responses",
-    action: "block",
-    result: "allowed",
-    categories: [],
-    matchedRules: [],
-  });
-
-  const blocked = store.listGuardrailEvents({ result: "blocked" });
-  assert.equal(blocked.items.length, 1);
-  assert.deepEqual(blocked.items[0].categories, ["prompt_injection"]);
-  assert.deepEqual(blocked.items[0].matchedRules, ["prompt-injection-ignore-instructions"]);
-  assert.equal(blocked.items[0].guardrailTextTruncated, true);
-  assert.equal(blocked.items[0].promptHash, "abc123");
-
-  assert.equal(store.cleanupGuardrailEvents(1, Date.parse("2026-06-20T12:00:00.000Z")), 1);
-  assert.equal(store.listGuardrailEvents().items.length, 1);
-  assert.equal(store.clearGuardrailEvents(), true);
-  assert.equal(store.listGuardrailEvents().items.length, 0);
 });

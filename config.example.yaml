@@ -52,15 +52,3 @@ logging:
 security:
   sessionTtlMs: 28800000
   apiKeyAuthEnabled: false
-  guardrails:
-    enabled: false
-    action: block
-    severityThreshold: high
-    maxTextBytes: 32768
-    maxRules: 100
-    maxPatternLength: 512
-    auditRetentionDays: 90
-    categories:
-      security: true
-      dangerous_action: true
-      prompt_injection: true
