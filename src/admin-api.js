@@ -421,6 +421,24 @@ export function createAdminApi(context) {
         return true;
       }
 
+      if (pathname === "/api/admin/guardrails/events" && req.method === "GET") {
+        sendJson(res, 200, store.listGuardrailEvents({
+          cursor: searchParams.get("cursor") || undefined,
+          limit: searchParams.get("limit") || undefined,
+          result: searchParams.get("result") || undefined,
+          category: searchParams.get("category") || undefined,
+          severity: searchParams.get("severity") || undefined,
+          apiKeyId: searchParams.get("apiKeyId") || undefined,
+        }));
+        return true;
+      }
+
+      if (pathname === "/api/admin/guardrails/events" && req.method === "DELETE") {
+        store.clearGuardrailEvents();
+        sendJson(res, 200, { deleted: true });
+        return true;
+      }
+
       const decisionMatch = pathname.match(/^\/api\/admin\/decisions\/([^/]+)$/);
       if (decisionMatch && req.method === "GET") {
         const item = store.get(decodeURIComponent(decisionMatch[1]));

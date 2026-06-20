@@ -150,14 +150,22 @@ test("security guardrails are editable and validated", async (t) => {
 
   assert.equal(updated.config.security.guardrails.enabled, true);
   assert.equal(updated.config.security.guardrails.categories.prompt_injection, false);
+  assert.equal(updated.config.security.guardrails.auditRetentionDays, 90);
   assert.equal(store.getRuntimeConfig().security.guardrails.enabled, true);
 
+  const retentionUpdated = await manager.update({ security: { guardrails: { auditRetentionDays: 180 } } }, updated.revision);
+  assert.equal(retentionUpdated.config.security.guardrails.auditRetentionDays, 180);
+
   await assert.rejects(
-    manager.update({ security: { guardrails: { rules: [{ id: "bad", category: "security", severity: "high", pattern: "[", enabled: true }] } } }, updated.revision),
+    manager.update({ security: { guardrails: { auditRetentionDays: 0 } } }, retentionUpdated.revision),
+    /security\.guardrails\.auditRetentionDays must be a positive integer/,
+  );
+  await assert.rejects(
+    manager.update({ security: { guardrails: { rules: [{ id: "bad", category: "security", severity: "high", pattern: "[", enabled: true }] } } }, retentionUpdated.revision),
     /security\.guardrails\.rules\.0\.pattern is invalid/,
   );
   await assert.rejects(
-    manager.update({ security: { guardrails: { rules: [{ id: "redos", category: "security", severity: "high", pattern: "(a+)+$", enabled: true }] } } }, updated.revision),
+    manager.update({ security: { guardrails: { rules: [{ id: "redos", category: "security", severity: "high", pattern: "(a+)+$", enabled: true }] } } }, retentionUpdated.revision),
     /security\.guardrails\.rules\.0\.pattern uses unsafe regex constructs/,
   );
 });

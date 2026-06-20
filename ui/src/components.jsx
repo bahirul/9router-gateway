@@ -124,6 +124,7 @@ const NAV = [
   ["/dashboard", "Overview", "dashboard"],
   ["/dashboard/routing", "Routing", "route"],
   ["/dashboard/task-classifier", "Task Classifier", "psychology", "Classifier"],
+  ["/dashboard/guardrails", "Guardrails", "security"],
   ["/dashboard/decisions", "Decisions", "receipt_long"],
   ["/dashboard/playground", "Playground", "science"],
   ["/dashboard/api-keys", "API Keys", "key"],

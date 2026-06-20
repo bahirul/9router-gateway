@@ -660,6 +660,153 @@ function NumberField({ label, value, onChange, step = "1", disabled = false, hin
   return <Field label={label} hint={hint}><Input type="number" step={step} disabled={disabled} value={value} onChange={(event) => onChange(Number(event.target.value))} /></Field>;
 }
 
+function guardrailTone(result) {
+  if (result === "blocked") return "danger";
+  if (result === "matched") return "warning";
+  return "success";
+}
+
+export function GuardrailsPage() {
+  const [state, setState] = useState(null);
+  const [form, setForm] = useState(null);
+  const [rulesText, setRulesText] = useState("[]");
+  const [events, setEvents] = useState(null);
+  const [eventFilters, setEventFilters] = useState({ result: "", category: "", severity: "", apiKeyId: "" });
+  const [apiKeys, setApiKeys] = useState([]);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const eventQuery = useMemo(() => new URLSearchParams(Object.entries(eventFilters).filter(([, value]) => value)).toString(), [eventFilters]);
+
+  async function loadConfig() {
+    const [configState, keys] = await Promise.all([api("/api/admin/config"), api("/api/admin/api-keys")]);
+    setState(configState);
+    setForm(configState.config.security.guardrails);
+    setRulesText(JSON.stringify(configState.config.security.guardrails.rules || [], null, 2));
+    setApiKeys(keys.keys || keys || []);
+  }
+
+  async function loadEvents(cursor = "") {
+    const suffix = `${eventQuery}${cursor ? `${eventQuery ? "&" : ""}cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const value = await api(`/api/admin/guardrails/events?limit=50${suffix ? `&${suffix}` : ""}`);
+    setEvents((current) => cursor ? { ...value, items: [...(current?.items || []), ...(value.items || [])] } : value);
+  }
+
+  async function load() {
+    try {
+      await Promise.all([loadConfig(), loadEvents()]);
+      setError("");
+    } catch (failure) { setError(failure.message); }
+  }
+
+  useEffect(() => { load(); }, []);
+  useEffect(() => { loadEvents().catch((failure) => setError(failure.message)); }, [eventQuery]);
+  if (!state || !form || !events) return <Loading />;
+
+  function field(path, value) {
+    setSaved(false);
+    setForm((current) => {
+      const next = structuredClone(current);
+      const parts = path.split(".");
+      let cursor = next;
+      for (const part of parts.slice(0, -1)) cursor = cursor[part];
+      cursor[parts.at(-1)] = value;
+      return next;
+    });
+  }
+
+  async function save() {
+    try {
+      const rules = JSON.parse(rulesText || "[]");
+      const result = await api("/api/admin/config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedRevision: state.revision,
+          patch: { security: { guardrails: { ...form, rules } } },
+        }),
+      });
+      setState(result);
+      setForm(result.config.security.guardrails);
+      setRulesText(JSON.stringify(result.config.security.guardrails.rules || [], null, 2));
+      setSaved(true);
+      setError("");
+    } catch (failure) { setError(failure.message); }
+  }
+
+  async function clearEvents() {
+    if (!window.confirm("Clear all guardrail audit events?")) return;
+    try {
+      await api("/api/admin/guardrails/events", { method: "DELETE" });
+      await loadEvents();
+    } catch (failure) { setError(failure.message); }
+  }
+
+  const overrideKeys = apiKeys.filter((key) => key.guardrails);
+  const totals = events.items.reduce((counts, event) => ({ ...counts, [event.result]: (counts[event.result] || 0) + 1 }), {});
+
+  return (
+    <>
+      <PageHeader title="Guardrails" description="Configure local safety checks and review guardrail audit events." action={<div className="flex items-center gap-3">{saved && <Badge tone="success">Saved</Badge>}<Button variant="secondary" onClick={load}><Icon>refresh</Icon>Refresh</Button><Button onClick={save}><Icon>save</Icon>Apply changes</Button></div>} />
+      <ErrorBox error={error} />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card title="Global policy" subtitle="Hard-block or monitor local checks before requests reach upstream providers.">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><div><p className="text-sm font-medium">Enable guardrails</p><p className="text-xs text-text-muted">Applies to chat, responses, and Anthropic messages.</p></div><Toggle checked={form.enabled} onChange={(value) => field("enabled", value)} /></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Action"><Select value={form.action} onChange={(event) => field("action", event.target.value)}><option value="block">Hard block</option><option value="monitor">Monitor only</option></Select></Field>
+              <Field label="Severity threshold"><Select value={form.severityThreshold} onChange={(event) => field("severityThreshold", event.target.value)}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></Select></Field>
+              <NumberField label="Max scan bytes" value={form.maxTextBytes} onChange={(value) => field("maxTextBytes", value)} />
+              <NumberField label="Audit retention days" value={form.auditRetentionDays} onChange={(value) => field("auditRetentionDays", value)} hint="Default 90 days for security audit review." />
+              <NumberField label="Max rules" value={form.maxRules} onChange={(value) => field("maxRules", value)} />
+              <NumberField label="Max pattern length" value={form.maxPatternLength} onChange={(value) => field("maxPatternLength", value)} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {Object.entries(form.categories || {}).map(([category, enabled]) => (
+                <div key={category} className="flex items-center justify-between gap-3 rounded-[10px] border border-border bg-bg p-3"><span className="text-sm font-medium">{category.replaceAll("_", " ")}</span><Toggle checked={enabled} onChange={(value) => field(`categories.${category}`, value)} /></div>
+              ))}
+            </div>
+          </div>
+        </Card>
+        <Card title="Rules" subtitle="JSON rule catalog; backend validates regex safety before saving.">
+          <textarea className="min-h-96 w-full rounded-[10px] border border-border bg-bg px-3 py-2 font-mono text-xs text-text-main outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15" value={rulesText} onChange={(event) => { setSaved(false); setRulesText(event.target.value); }} />
+        </Card>
+        <Card title="Audit summary" subtitle="Recent loaded guardrail events.">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Metric label="Allowed" value={(totals.allowed || 0).toLocaleString()} icon="check_circle" tone="success" />
+            <Metric label="Matched" value={(totals.matched || 0).toLocaleString()} icon="warning" tone="warning" />
+            <Metric label="Blocked" value={(totals.blocked || 0).toLocaleString()} icon="block" tone="danger" />
+          </div>
+          <div className="mt-5">
+            <p className="text-sm font-medium">API-key overrides</p>
+            <p className="mt-1 text-sm text-text-muted">{overrideKeys.length ? `${overrideKeys.length} key(s) have guardrail overrides.` : "No API keys currently override the global guardrail policy."}</p>
+            <div className="mt-3 flex flex-wrap gap-2">{overrideKeys.map((key) => <Badge key={key.id} tone="info">{key.name}</Badge>)}</div>
+          </div>
+        </Card>
+        <Card title="Audit log" subtitle="No raw prompt text is stored; entries include hashes, categories, and matched rule IDs." action={<Button variant="danger" onClick={clearEvents}><Icon>delete</Icon>Clear</Button>} className="xl:col-span-2">
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <Field label="Result"><Select value={eventFilters.result} onChange={(event) => setEventFilters({ ...eventFilters, result: event.target.value })}><option value="">All</option><option value="allowed">Allowed</option><option value="matched">Matched</option><option value="blocked">Blocked</option></Select></Field>
+            <Field label="Category"><Select value={eventFilters.category} onChange={(event) => setEventFilters({ ...eventFilters, category: event.target.value })}><option value="">All</option><option value="security">Security</option><option value="dangerous_action">Dangerous action</option><option value="prompt_injection">Prompt injection</option></Select></Field>
+            <Field label="Severity"><Select value={eventFilters.severity} onChange={(event) => setEventFilters({ ...eventFilters, severity: event.target.value })}><option value="">All</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></Select></Field>
+            <Field label="API key"><Select value={eventFilters.apiKeyId} onChange={(event) => setEventFilters({ ...eventFilters, apiKeyId: event.target.value })}><option value="">All</option>{apiKeys.map((key) => <option key={key.id} value={key.id}>{key.name}</option>)}</Select></Field>
+          </div>
+          {!events.items.length ? <Empty icon="security" title="No guardrail events" description="Events appear here after protected generation requests are evaluated." /> : (
+            <div className="overflow-auto rounded-[12px] border border-border-subtle">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-surface-2 text-xs uppercase tracking-wide text-text-muted"><tr><th className="px-3 py-2">Time</th><th className="px-3 py-2">Result</th><th className="px-3 py-2">Path</th><th className="px-3 py-2">Model</th><th className="px-3 py-2">Categories</th><th className="px-3 py-2">Rules</th><th className="px-3 py-2">Prompt hash</th><th className="px-3 py-2">Latency</th></tr></thead>
+                <tbody className="divide-y divide-border-subtle">
+                  {events.items.map((event) => (
+                    <tr key={event.id} className="align-top"><td className="whitespace-nowrap px-3 py-2 text-text-muted">{new Date(event.timestamp).toLocaleString()}</td><td className="px-3 py-2"><Badge tone={guardrailTone(event.result)}>{event.result}</Badge></td><td className="px-3 py-2">{event.path}</td><td className="px-3 py-2">{event.model || "—"}</td><td className="px-3 py-2"><div className="flex flex-wrap gap-1">{(event.categories || []).map((category) => <Badge key={category} tone="info">{category}</Badge>)}</div></td><td className="max-w-xs px-3 py-2"><code className="break-all text-xs">{(event.matchedRules || []).join(", ") || "—"}</code></td><td className="px-3 py-2"><code className="text-xs">{shortRequestId(event.promptHash)}</code>{event.guardrailTextTruncated && <Badge tone="warning">truncated</Badge>}</td><td className="px-3 py-2">{Number(event.latencyMs || 0).toFixed(2)} ms</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {events.nextCursor && <div className="mt-4 flex justify-center"><Button variant="secondary" onClick={() => loadEvents(events.nextCursor)}>Load more</Button></div>}
+        </Card>
+      </div>
+    </>
+  );
+}
+
 export function DecisionsPage() {
   const [data, setData] = useState(null);
   const [filters, setFilters] = useState({ target: "", task: "", complexity: "", status: "", mode: "" });

@@ -59,6 +59,7 @@ security:
     maxTextBytes: 32768
     maxRules: 100
     maxPatternLength: 512
+    auditRetentionDays: 90
     categories:
       security: true
       dangerous_action: true

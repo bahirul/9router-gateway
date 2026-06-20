@@ -66,6 +66,7 @@ const DEFAULT_CONFIG = {
       maxTextBytes: 32768,
       maxRules: 100,
       maxPatternLength: 512,
+      auditRetentionDays: 90,
       categories: {
         security: true,
         dangerous_action: true,
@@ -109,6 +110,7 @@ const UI_EDITABLE_PATHS = new Set([
   "security.guardrails.maxTextBytes",
   "security.guardrails.maxRules",
   "security.guardrails.maxPatternLength",
+  "security.guardrails.auditRetentionDays",
   "security.guardrails.categories.security",
   "security.guardrails.categories.dangerous_action",
   "security.guardrails.categories.prompt_injection",
@@ -203,7 +205,7 @@ function validate(config) {
     throw new Error("security.guardrails.maxTextBytes must be a positive integer");
   }
   config.security.guardrails.maxTextBytes = Number(config.security.guardrails.maxTextBytes);
-  for (const field of ["maxRules", "maxPatternLength"]) {
+  for (const field of ["maxRules", "maxPatternLength", "auditRetentionDays"]) {
     if (!Number.isSafeInteger(Number(config.security.guardrails[field])) || Number(config.security.guardrails[field]) <= 0) {
       throw new Error(`security.guardrails.${field} must be a positive integer`);
     }

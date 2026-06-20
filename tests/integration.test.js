@@ -610,6 +610,12 @@ test("guardrails hard-block before upstream proxy", async (t) => {
   assert.equal(body.error.type, "smart_router_guardrail_blocked");
   assert.deepEqual(body.error.categories, ["prompt_injection"]);
   assert.equal(upstreamCalls, 0);
+  const audit = app.decisionStore.listGuardrailEvents({ result: "blocked" }).items[0];
+  assert.equal(audit.path, "/v1/chat/completions");
+  assert.equal(audit.model, "auto");
+  assert.deepEqual(audit.categories, ["prompt_injection"]);
+  assert.ok(audit.promptHash);
+  assert.equal(audit.prompt, undefined);
 });
 
 test("guardrails inspect tool descriptions before upstream proxy", async (t) => {
@@ -658,6 +664,10 @@ test("guardrails inspect tool descriptions before upstream proxy", async (t) => 
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error.type, "smart_router_guardrail_blocked");
   assert.equal(upstreamCalls, 0);
+  const audit = app.decisionStore.listGuardrailEvents({ result: "blocked" }).items[0];
+  assert.equal(audit.path, "/v1/responses");
+  assert.deepEqual(audit.categories, ["prompt_injection"]);
+  assert.ok(audit.matchedRules.includes("prompt-injection-ignore-instructions"));
 });
 
 test("api keys gate routed requests when enabled", async (t) => {

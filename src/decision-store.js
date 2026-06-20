@@ -243,6 +243,24 @@ export class DecisionStore {
           PRIMARY KEY(apiKeyId, periodKey),
           FOREIGN KEY(apiKeyId) REFERENCES apiKeys(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS guardrailEvents (
+          id TEXT PRIMARY KEY,
+          timestamp TEXT NOT NULL,
+          requestId TEXT,
+          apiKeyId TEXT,
+          clientIp TEXT,
+          userAgent TEXT,
+          path TEXT NOT NULL,
+          model TEXT,
+          action TEXT NOT NULL,
+          result TEXT NOT NULL,
+          severity TEXT,
+          categoriesJson TEXT NOT NULL,
+          matchedRulesJson TEXT NOT NULL,
+          promptHash TEXT,
+          guardrailTextTruncated INTEGER NOT NULL DEFAULT 0,
+          latencyMs REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON decisions(timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_decisions_target ON decisions(targetKey);
@@ -250,6 +268,10 @@ export class DecisionStore {
         CREATE INDEX IF NOT EXISTS idx_decisions_complexity ON decisions(complexity);
         CREATE INDEX IF NOT EXISTS idx_decisions_status ON decisions(status);
         CREATE INDEX IF NOT EXISTS idx_decisions_mode ON decisions(mode);
+        CREATE INDEX IF NOT EXISTS idx_guardrail_events_timestamp ON guardrailEvents(timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_guardrail_events_result ON guardrailEvents(result);
+        CREATE INDEX IF NOT EXISTS idx_guardrail_events_severity ON guardrailEvents(severity);
+        CREATE INDEX IF NOT EXISTS idx_guardrail_events_api_key ON guardrailEvents(apiKeyId);
         CREATE INDEX IF NOT EXISTS idx_correction_items_run ON correctionItems(runId);
         CREATE INDEX IF NOT EXISTS idx_prompt_corrections_active ON promptCorrections(active);
         CREATE INDEX IF NOT EXISTS idx_learned_routing_active ON learnedRoutingExamples(active);
@@ -750,6 +772,7 @@ export class DecisionStore {
         DELETE FROM correctionRuns;
         DELETE FROM feedback;
         DELETE FROM decisions;
+        DELETE FROM guardrailEvents;
         DELETE FROM apiKeyUsage;
         DELETE FROM apiKeys;
         DELETE FROM meta;
@@ -791,6 +814,85 @@ export class DecisionStore {
     if (!this.ready) return 0;
     const cutoff = new Date(now - this.retentionDays * 86400000).toISOString();
     return Number(this.db.prepare(`DELETE FROM decisions WHERE timestamp < ?`).run(cutoff).changes || 0);
+  }
+
+  cleanupGuardrailEvents(retentionDays = 90, now = Date.now()) {
+    if (!this.ready) return 0;
+    const days = Math.max(1, Number(retentionDays) || 90);
+    const cutoff = new Date(now - days * 86400000).toISOString();
+    return Number(this.db.prepare(`DELETE FROM guardrailEvents WHERE timestamp < ?`).run(cutoff).changes || 0);
+  }
+
+  recordGuardrailEvent(record) {
+    const event = {
+      id: record.id || crypto.randomUUID(),
+      timestamp: record.timestamp || new Date().toISOString(),
+      requestId: record.requestId || null,
+      apiKeyId: record.apiKeyId || null,
+      clientIp: record.clientIp || null,
+      userAgent: record.userAgent || null,
+      path: record.path || "/",
+      model: record.model || null,
+      action: record.action || "block",
+      result: record.result || "allowed",
+      severity: record.severity || null,
+      categories: record.categories || [],
+      matchedRules: record.matchedRules || [],
+      promptHash: record.promptHash || null,
+      guardrailTextTruncated: Boolean(record.guardrailTextTruncated),
+      latencyMs: Number(record.latencyMs) || 0,
+    };
+    this.execute(() => this.db.prepare(`
+      INSERT INTO guardrailEvents(
+        id,timestamp,requestId,apiKeyId,clientIp,userAgent,path,model,action,result,severity,
+        categoriesJson,matchedRulesJson,promptHash,guardrailTextTruncated,latencyMs
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      event.id, event.timestamp, event.requestId, event.apiKeyId, event.clientIp, event.userAgent,
+      event.path, event.model, event.action, event.result, event.severity,
+      JSON.stringify(event.categories), JSON.stringify(event.matchedRules), event.promptHash,
+      Number(event.guardrailTextTruncated), event.latencyMs,
+    ));
+    return event;
+  }
+
+  listGuardrailEvents({ limit = 50, cursor, result, category, severity, apiKeyId } = {}) {
+    if (!this.ready) return { items: [], nextCursor: null, degraded: true };
+    const where = [];
+    const params = [];
+    if (cursor) { where.push("timestamp < ?"); params.push(cursor); }
+    for (const [column, value] of [["result", result], ["severity", severity], ["apiKeyId", apiKeyId]]) {
+      if (value !== undefined && value !== null && value !== "") {
+        where.push(`${column} = ?`);
+        params.push(value);
+      }
+    }
+    if (category) {
+      where.push("categoriesJson LIKE ?");
+      params.push(`%${String(category).replaceAll('%', '')}%`);
+    }
+    const size = Math.min(100, Math.max(1, Number(limit) || 50));
+    const rows = this.db.prepare(`
+      SELECT * FROM guardrailEvents
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY timestamp DESC LIMIT ?
+    `).all(...params, size + 1);
+    const hasMore = rows.length > size;
+    const items = rows.slice(0, size).map((row) => ({
+      ...row,
+      categories: json(row.categoriesJson, []),
+      matchedRules: json(row.matchedRulesJson, []),
+      guardrailTextTruncated: Boolean(row.guardrailTextTruncated),
+      categoriesJson: undefined,
+      matchedRulesJson: undefined,
+    }));
+    return { items, nextCursor: hasMore ? items.at(-1).timestamp : null, degraded: false };
+  }
+
+  clearGuardrailEvents() {
+    if (!this.ready) return false;
+    this.execute(() => this.db.exec(`DELETE FROM guardrailEvents;`));
+    return true;
   }
 
   list({ limit = 50, cursor, target, task, complexity, status, mode } = {}) {
