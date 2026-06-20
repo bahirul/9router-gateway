@@ -19,10 +19,11 @@ import { LogStore } from "./log-store.js";
 import { Metrics } from "./metrics.js";
 import { packageVersion } from "./package-info.js";
 import { clientIp } from "./client-ip.js";
-import { isRoutablePath } from "./request-normalizer.js";
+import { isRoutablePath, normalizeRequest } from "./request-normalizer.js";
 import { RouterEngine } from "./router-engine.js";
 import { SessionManager } from "./session-manager.js";
 import { createStaticUi } from "./static-ui.js";
+import { evaluateGuardrails, mergeGuardrailConfig } from "./guardrails.js";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -120,6 +121,22 @@ function apiKeyNeedsQuotaConsume(authorization) {
 
 function apiKeyForcedModel(authorization) {
   return authorization?.key?.forcedModel || null;
+}
+
+function apiKeyGuardrails(authorization) {
+  return authorization?.key?.guardrails || null;
+}
+
+function rejectGuardrail(res, result) {
+  return jsonResponse(res, 403, {
+    error: {
+      message: "Request blocked by gateway guardrails",
+      type: "smart_router_guardrail_blocked",
+      code: "guardrail_blocked",
+      categories: result.categories,
+      severity: result.severity,
+    },
+  });
 }
 
 function routingHeaders(decisionResult) {
@@ -486,6 +503,7 @@ export function createSmartRouter({
         }
       }
       const forcedModel = apiKeyForcedModel(apiKeyAuthorization);
+      const guardrailOverride = apiKeyGuardrails(apiKeyAuthorization);
 
       if (req.method === "POST" && pathname === "/v1/router/explain") {
         if (!adminAuthorized(req, decisionStore)) {
@@ -561,6 +579,16 @@ export function createSmartRouter({
           return jsonResponse(res, 400, {
             error: { message: "Invalid JSON body", type: "smart_router_invalid_request" },
           });
+        }
+        const guardrailConfig = mergeGuardrailConfig(activeConfig.security.guardrails, guardrailOverride);
+        const guardrailResult = evaluateGuardrails(guardrailConfig, normalizeRequest(pathname, body));
+        metrics.increment("smart_router_guardrail_evaluations_total", { action: guardrailResult.action, result: guardrailResult.allowed ? "allowed" : "blocked" });
+        for (const category of guardrailResult.categories) {
+          metrics.increment("smart_router_guardrail_matches_total", { category, severity: guardrailResult.severity || "unknown" });
+        }
+        if (!guardrailResult.allowed) {
+          metrics.increment("smart_router_guardrail_blocks_total", { severity: guardrailResult.severity || "unknown" });
+          return rejectGuardrail(res, guardrailResult);
         }
         routingResult = await engine.decide({
           pathname,

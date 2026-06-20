@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import YAML from "yaml";
+import { defaultGuardrailRules, validateGuardrailsConfig } from "./guardrails.js";
 import { DEFAULT_TASK_CLASSES, compileTaskClasses } from "./task-classes.js";
 
 const DEFAULT_CONFIG = {
@@ -58,6 +59,21 @@ const DEFAULT_CONFIG = {
   security: {
     sessionTtlMs: 8 * 60 * 60 * 1000,
     apiKeyAuthEnabled: false,
+    guardrails: {
+      enabled: false,
+      action: "block",
+      severityThreshold: "high",
+      maxTextBytes: 32768,
+      maxRules: 100,
+      maxPatternLength: 512,
+      categories: {
+        security: true,
+        dangerous_action: true,
+        prompt_injection: true,
+      },
+      ruleOverrides: {},
+      rules: defaultGuardrailRules(),
+    },
   },
 };
 
@@ -87,6 +103,17 @@ const UI_EDITABLE_PATHS = new Set([
   "logging.rawPrompts",
   "logging.retentionDays",
   "security.apiKeyAuthEnabled",
+  "security.guardrails.enabled",
+  "security.guardrails.action",
+  "security.guardrails.severityThreshold",
+  "security.guardrails.maxTextBytes",
+  "security.guardrails.maxRules",
+  "security.guardrails.maxPatternLength",
+  "security.guardrails.categories.security",
+  "security.guardrails.categories.dangerous_action",
+  "security.guardrails.categories.prompt_injection",
+  "security.guardrails.ruleOverrides",
+  "security.guardrails.rules",
 ]);
 
 function isObject(value) {
@@ -172,6 +199,17 @@ function validate(config) {
   if (typeof config.security.apiKeyAuthEnabled !== "boolean") {
     throw new Error("security.apiKeyAuthEnabled must be a boolean");
   }
+  if (!Number.isSafeInteger(Number(config.security.guardrails.maxTextBytes)) || Number(config.security.guardrails.maxTextBytes) <= 0) {
+    throw new Error("security.guardrails.maxTextBytes must be a positive integer");
+  }
+  config.security.guardrails.maxTextBytes = Number(config.security.guardrails.maxTextBytes);
+  for (const field of ["maxRules", "maxPatternLength"]) {
+    if (!Number.isSafeInteger(Number(config.security.guardrails[field])) || Number(config.security.guardrails[field]) <= 0) {
+      throw new Error(`security.guardrails.${field} must be a positive integer`);
+    }
+    config.security.guardrails[field] = Number(config.security.guardrails[field]);
+  }
+  validateGuardrailsConfig(config.security.guardrails);
 
   let upstream;
   try {
@@ -290,6 +328,7 @@ function publicConfig(config) {
     security: {
       apiKeyAuthEnabled: config.security.apiKeyAuthEnabled,
       sessionTtlMs: config.security.sessionTtlMs,
+      guardrails: structuredClone(config.security.guardrails),
     },
   };
 }

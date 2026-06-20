@@ -231,6 +231,7 @@ export class DecisionStore {
           quotaPeriod TEXT,
           quotaLimit INTEGER,
           forcedModel TEXT,
+          guardrailsJson TEXT,
           createdAt TEXT NOT NULL,
           updatedAt TEXT NOT NULL
         );
@@ -304,6 +305,9 @@ export class DecisionStore {
     if (apiKeyColumns.size && !apiKeyColumns.has("forcedModel")) {
       this.db.exec(`ALTER TABLE apiKeys ADD COLUMN forcedModel TEXT`);
     }
+    if (apiKeyColumns.size && !apiKeyColumns.has("guardrailsJson")) {
+      this.db.exec(`ALTER TABLE apiKeys ADD COLUMN guardrailsJson TEXT`);
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS learnedRoutingExamples (
         requestId TEXT PRIMARY KEY,
@@ -375,23 +379,24 @@ export class DecisionStore {
     if (!this.ready) return [];
     const now = new Date();
     return this.db.prepare(`
-      SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt
+      SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,guardrailsJson,createdAt,updatedAt
       FROM apiKeys
       ORDER BY createdAt DESC
     `).all().map((row) => this.apiKeyRecord(row, now));
   }
 
-  createApiKey({ name, expiresAt = null, quotaPeriod = null, quotaLimit = null, forcedModel = null }) {
+  createApiKey({ name, expiresAt = null, quotaPeriod = null, quotaLimit = null, forcedModel = null, guardrails = null }) {
     const now = new Date().toISOString();
     const id = generateApiKeyId();
     const secret = generateApiKeySecret();
     const displayPrefix = `${secret.slice(0, 10)}...`;
     const quota = normalizeQuota({ quotaPeriod, quotaLimit });
+    const guardrailsJson = guardrails ? JSON.stringify(guardrails) : null;
     this.execute(() => this.db.prepare(`
-      INSERT INTO apiKeys(id,name,secretHash,secretLookup,secret,displayPrefix,expiresAt,active,revokedAt,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(id, name, encodeApiKeySecret(secret), apiKeyLookup(secret), secret, displayPrefix, expiresAt, 1, null, quota.quotaPeriod, quota.quotaLimit, forcedModel, now, now));
-    return this.apiKeyRecord({ id, name, displayPrefix, expiresAt, active: 1, ...quota, forcedModel, createdAt: now, updatedAt: now, secret }, new Date(now));
+      INSERT INTO apiKeys(id,name,secretHash,secretLookup,secret,displayPrefix,expiresAt,active,revokedAt,quotaPeriod,quotaLimit,forcedModel,guardrailsJson,createdAt,updatedAt)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(id, name, encodeApiKeySecret(secret), apiKeyLookup(secret), secret, displayPrefix, expiresAt, 1, null, quota.quotaPeriod, quota.quotaLimit, forcedModel, guardrailsJson, now, now));
+    return this.apiKeyRecord({ id, name, displayPrefix, expiresAt, active: 1, ...quota, forcedModel, guardrailsJson, createdAt: now, updatedAt: now, secret }, new Date(now));
   }
 
   setApiKeyActive(id, active) {
@@ -409,7 +414,7 @@ export class DecisionStore {
 
   getApiKey(id) {
     if (!this.ready) return null;
-    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
+    const row = this.db.prepare(`SELECT id,name,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,guardrailsJson,createdAt,updatedAt FROM apiKeys WHERE id=?`).get(id);
     if (!row) return null;
     return this.apiKeyRecord(row);
   }
@@ -432,6 +437,15 @@ export class DecisionStore {
     return this.getApiKey(id);
   }
 
+  setApiKeyGuardrails(id, guardrails) {
+    const now = new Date().toISOString();
+    const guardrailsJson = guardrails ? JSON.stringify(guardrails) : null;
+    this.execute(() => this.db.prepare(`
+      UPDATE apiKeys SET guardrailsJson=?, updatedAt=? WHERE id=?
+    `).run(guardrailsJson, now, id));
+    return this.getApiKey(id);
+  }
+
   apiKeyRecord(row, date = new Date()) {
     const periodKey = quotaPeriodKey(row.quotaPeriod, date);
     const quotaUsed = periodKey
@@ -447,6 +461,7 @@ export class DecisionStore {
       quotaPeriod: row.quotaPeriod || null,
       quotaLimit,
       forcedModel: row.forcedModel || null,
+      guardrails: row.guardrailsJson ? JSON.parse(row.guardrailsJson) : null,
       quotaUsed,
       quotaRemaining: quotaLimit == null ? null : Math.max(0, quotaLimit - quotaUsed),
       quotaPeriodKey: periodKey,
@@ -460,7 +475,7 @@ export class DecisionStore {
 
   authorizeApiKey(candidate, { consume = false, now = new Date() } = {}) {
     if (!this.ready || !candidate) return { ok: false, reason: "missing" };
-    const selectColumns = `id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,createdAt,updatedAt`;
+    const selectColumns = `id,name,secretHash,secret,displayPrefix,expiresAt,active,quotaPeriod,quotaLimit,forcedModel,guardrailsJson,createdAt,updatedAt`;
     const lookup = apiKeyLookup(candidate);
     let row = this.db.prepare(`
       SELECT ${selectColumns}

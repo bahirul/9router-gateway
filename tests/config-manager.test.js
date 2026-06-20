@@ -135,6 +135,33 @@ test("security api key auth toggle is editable and persisted", async (t) => {
   assert.equal(store.getRuntimeConfig().security.apiKeyAuthEnabled, true);
 });
 
+test("security guardrails are editable and validated", async (t) => {
+  const { store, manager } = await runtimeManagerFixture(t);
+  const state = manager.describe();
+
+  const updated = await manager.update({
+    security: {
+      guardrails: {
+        enabled: true,
+        categories: { prompt_injection: false },
+      },
+    },
+  }, state.revision);
+
+  assert.equal(updated.config.security.guardrails.enabled, true);
+  assert.equal(updated.config.security.guardrails.categories.prompt_injection, false);
+  assert.equal(store.getRuntimeConfig().security.guardrails.enabled, true);
+
+  await assert.rejects(
+    manager.update({ security: { guardrails: { rules: [{ id: "bad", category: "security", severity: "high", pattern: "[", enabled: true }] } } }, updated.revision),
+    /security\.guardrails\.rules\.0\.pattern is invalid/,
+  );
+  await assert.rejects(
+    manager.update({ security: { guardrails: { rules: [{ id: "redos", category: "security", severity: "high", pattern: "(a+)+$", enabled: true }] } } }, updated.revision),
+    /security\.guardrails\.rules\.0\.pattern uses unsafe regex constructs/,
+  );
+});
+
 test("seeds and edits task classes in SQLite runtime config", async (t) => {
   const { store, manager } = await runtimeManagerFixture(t);
   const initial = manager.describe();

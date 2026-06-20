@@ -135,6 +135,10 @@ test("manages api keys, expirations, and verification", async (t) => {
   assert.equal(forced.forcedModel, "model-a");
   assert.equal(store.authorizeApiKey(created.secret).key.forcedModel, "model-a");
 
+  const guardrailed = store.setApiKeyGuardrails(created.id, { enabled: false, action: "block", severityThreshold: "high", categories: {}, ruleOverrides: {}, rules: [] });
+  assert.equal(guardrailed.guardrails.enabled, false);
+  assert.equal(store.authorizeApiKey(created.secret).key.guardrails.enabled, false);
+
   const expired = store.createApiKey({ name: "Expired", expiresAt: new Date(Date.now() - 1000).toISOString() });
   assert.equal(expired.name, "Expired");
   assert.equal(store.verifyApiKey(expired.secret), false);
