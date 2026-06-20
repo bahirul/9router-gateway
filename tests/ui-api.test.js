@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { api, setCsrfToken, setUnauthorizedHandler } from "../ui/src/api.js";
+import { api, listPayloadItems, setCsrfToken, setUnauthorizedHandler } from "../ui/src/api.js";
 
 function jsonResponse(status, payload) {
   return new Response(JSON.stringify(payload), {
@@ -8,6 +8,15 @@ function jsonResponse(status, payload) {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+test("normalizes list payload shapes for guardrails ui", () => {
+  const key = { id: "key-1", name: "CLI" };
+  assert.deepEqual(listPayloadItems({ items: [key] }), [key]);
+  assert.deepEqual(listPayloadItems({ keys: [key] }), [key]);
+  assert.deepEqual(listPayloadItems([key]), [key]);
+  assert.deepEqual(listPayloadItems({}), []);
+  assert.deepEqual(listPayloadItems(null), []);
+});
 
 test("notifies once when concurrent authenticated requests return 401", async (t) => {
   const previousFetch = globalThis.fetch;

@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api } from "./api";
+import { api, listPayloadItems } from "./api";
 import {
   Badge,
   Button,
@@ -682,13 +682,14 @@ export function GuardrailsPage() {
     setState(configState);
     setForm(configState.config.security.guardrails);
     setRulesText(JSON.stringify(configState.config.security.guardrails.rules || [], null, 2));
-    setApiKeys(keys.keys || keys || []);
+    setApiKeys(listPayloadItems(keys));
   }
 
   async function loadEvents(cursor = "") {
     const suffix = `${eventQuery}${cursor ? `${eventQuery ? "&" : ""}cursor=${encodeURIComponent(cursor)}` : ""}`;
     const value = await api(`/api/admin/guardrails/events?limit=50${suffix ? `&${suffix}` : ""}`);
-    setEvents((current) => cursor ? { ...value, items: [...(current?.items || []), ...(value.items || [])] } : value);
+    const items = listPayloadItems(value);
+    setEvents((current) => cursor ? { ...value, items: [...listPayloadItems(current), ...items] } : { ...value, items });
   }
 
   async function load() {

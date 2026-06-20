@@ -13,6 +13,13 @@ export function setUnauthorizedHandler(handler) {
   unauthorizedHandler = handler;
 }
 
+export function listPayloadItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.keys)) return payload.keys;
+  return [];
+}
+
 export async function api(path, options = {}) {
   const method = options.method || "GET";
   const headers = { ...(options.headers || {}) };
