@@ -43,17 +43,17 @@ Batch review:
 
 - Click Review all from Dashboard → Decisions to review every unreviewed decision matching the current filters.
 - The batch runs one decision at a time with the selected judge model and confidence threshold.
-- Confident correct and incorrect verdicts are applied automatically and can train learned routing examples.
+- Confident correct and incorrect verdicts are applied automatically; they train learned routing examples only when the batch option is enabled.
 - Uncertain verdicts are saved as feedback so those decisions become reviewed, but they do not train learned routing.
 - Decisions without stored prompt/request context are skipped; failed reviews are counted and the batch continues.
 
 ## Routing Improvement Workflow
 
-Use this workflow when unreviewed decisions should be judged by a model and turned into learned routing examples:
+Use this workflow when unreviewed decisions should be judged by a model and optionally turned into learned routing examples:
 
 1. Filter Dashboard → Decisions to the request slice you want to tune, such as a task, target, status, or mode.
 2. Review decisions in that slice and apply feedback until the expected target is recorded on the misses.
-3. Click Review all to review each matching decision and train learned routing from confident results.
+3. Click Review all to review each matching decision; enable learned-routing training only when confident results should affect future similar prompts.
 4. Read the proposal cards. Each card shows the task class, number of reviewed corrections, current `scoreDelta` and `hardFloor`, and proposed values.
 5. Check the impact preview counts: Reviewed, Corrections, Would change, and Would improve.
 6. Click Approve and apply only after the proposal and preview match operator intent.
@@ -95,12 +95,15 @@ The password is stored in SQLite and survives restarts.
 Dashboard → System includes:
 
 - Refresh model catalog: reloads upstream `/v1/models`.
-- Reset learned routing data: clears stored raw prompts and request context for reviewed decisions and disables learned learned routing examples. Decision history and feedback remain available.
+- Reset learned routing data: clears stored raw prompts and request context for reviewed decisions and disables learned routing examples. Decision history and feedback remain available.
+- Clear all prompt data: removes stored raw prompts and request context from every decision while keeping history and feedback.
 - Purge decision history: deletes stored decisions and feedback.
 - Reset runtime overrides: removes dashboard-managed config overrides and returns to `config.yaml` and environment values immediately.
 - Reset database: deletes SQLite decisions, feedback, API keys, quotas, and dashboard settings after confirming the admin password; the admin password is preserved.
 
-Use Reset learned routing data after finishing review cycles when you want to keep review outcomes but remove the raw prompt/request context used by the judge model. Use Purge decision history only when you no longer need decision, feedback, correction-run, or prompt-correction history.
+Use Reset learned routing data after finishing review cycles when you want to keep review outcomes but remove the raw prompt/request context used by the judge model. Use Clear all prompt data for broader privacy cleanup across reviewed and unreviewed decisions. Use Purge decision history only when you no longer need decision, feedback, correction-run, or prompt-correction history.
+
+When deployed behind Cloudflare or another reverse proxy, confirm the proxy sends `CF-Connecting-IP`, `True-Client-IP`, or standard forwarded headers. The gateway records the first trusted real-client header it receives before falling back to the socket IP.
 
 ## Health and Readiness
 
@@ -175,7 +178,7 @@ Batch review uses the active Decisions filters and only skips already-reviewed r
 
 ### Learned correction keeps routing a prompt
 
-Open the source decision and reset its feedback if it was a manual correction, or use Dashboard → System → Reset learned routing data to disable all learned learned routing examples while preserving decision history and feedback.
+Open the source decision and reset its feedback if it was a manual correction, or use Dashboard → System → Reset learned routing data to disable all learned routing examples while preserving decision history and feedback.
 
 ### Storage shows degraded
 

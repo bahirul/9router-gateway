@@ -97,13 +97,13 @@ The review model receives the configured routing targets, the recorded predictio
 
 Only records with stored prompt/request context are eligible for model review. Enable Dashboard → Routing → Raw prompt logging before collecting decisions you want to review; stored request context is sanitized for sensitive fields before persistence. If full request context is present, the review sees that request body; otherwise it can use the stored latest prompt text. Records without either are marked ineligible with `missing_context` and no upstream call is made.
 
-`correct` and `uncertain` reviews are recorded as review results only. They cannot be applied as routing corrections. An `incorrect` review can be applied only when it includes a configured target key and meets the confidence threshold, which defaults to `0.7`.
+Applied reviews always write operator feedback. `correct` becomes positive feedback, `uncertain` marks the decision reviewed without training, and `incorrect` can train learned routing only when it includes a configured target key and meets the confidence threshold, which defaults to `0.7`.
 
-Applying a review writes operator feedback and can store a learned routing example from the prompt text. Future similar virtual-model requests use mode `learned_classified`, keep the original configured target for audit fields, and dispatch to the learned target. Learned routing does not run during global shadow mode or per-key forced-model routing, and it does not rewrite task-class regexes, thresholds, or model targets automatically.
+Model review training is opt-in from the single-review drawer and batch-review dialog. When enabled, confident `correct` reviews train the selected target as a positive example, and confident `incorrect` reviews train the suggested target. Future similar virtual-model requests use mode `learned_classified`, keep the original configured target for audit fields, and dispatch to the learned target. Learned routing does not run during global shadow mode or per-key forced-model routing, and it does not rewrite task-class regexes, thresholds, or model targets automatically.
 
 Operators can also train learned routing from manual feedback when they choose a configured expected target and the decision has stored prompt context. Manual and model-reviewed examples use the same similarity matching behavior.
 
-Dashboard → System → Reset learned routing data disables learned routing examples and clears stored raw prompt/request context only for reviewed decisions. Decision history and feedback remain available; unreviewed prompt context is left intact.
+Dashboard → System → Reset learned routing data disables learned routing examples and clears stored raw prompt/request context only for reviewed decisions. Clear all prompt data removes stored raw prompt/request context from every decision. Decision history and feedback remain available in both flows.
 
 Batch review is a dashboard workflow, not a separate routing path or server-side batch endpoint. Dashboard → Decisions → Review all calls the same single-decision review, apply, and feedback endpoints sequentially for each unreviewed record that matches the active filters.
 
@@ -112,7 +112,7 @@ Batch review is a dashboard workflow, not a separate routing path or server-side
 Reviewed decisions can be used to propose safer routing config changes from observed routing misses. This workflow is intentionally staged:
 
 1. Review decisions from Dashboard → Decisions and apply feedback when the expected target differs from the selected target.
-2. Click Review all with Decisions filters set to the unreviewed slice you want the judge model to review and train from.
+2. Click Review all with Decisions filters set to the unreviewed slice you want the judge model to review; enable learned-routing training only when those model judgments should affect future similar prompts.
 3. Inspect the model-generated config proposal, including each changed path, rationale, and proposed value.
 4. Inspect the backend impact preview before approving. The preview compares current routing with the candidate config for the reviewed matching samples.
 5. Approve and apply only when the preview matches operator intent.

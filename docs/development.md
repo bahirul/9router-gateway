@@ -67,6 +67,7 @@ npm run smoke:upstream
 - `src/server.js`: HTTP server, proxy flow, health checks, metrics, model list behavior, static UI serving.
 - `src/admin-api.js`: dashboard/admin API routes for sessions, config, catalog, API keys, analytics, decisions, feedback, and decision review.
 - `src/config.js`: defaults, config loading, env overrides, validation, SQLite runtime config.
+- `src/client-ip.js`: proxy-aware real client IP extraction for Cloudflare and forwarded headers.
 - `src/catalog.js`: upstream model catalog refresh and dispatch target validation.
 - `src/router-engine.js`: request normalization, feature extraction, classifier use, affinity, forced-model handling, learned routing examples, catalog fallback, and decision logging.
 - `src/policy.js`: score-to-target policy and routing profile behavior.
@@ -75,7 +76,7 @@ npm run smoke:upstream
 - `src/classifier.js`: optional semantic classifier backed by `@huggingface/transformers`.
 - `src/affinity.js`: session affinity for stable multi-turn dispatch.
 - `src/request-normalizer.js`: OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages normalization.
-- `src/decision-store.js`: SQLite storage for decisions, outcomes, feedback, learned routing examples, API keys, admin password, quotas, and runtime config.
+- `src/decision-store.js`: SQLite storage for decisions, outcomes, feedback, learned routing examples, API keys, admin password, quotas, runtime config, and compatibility metadata.
 - `src/decision-corrector.js`: judge-model review of stored decisions and application of learned routing examples.
 - `src/log-store.js`: JSONL logging plus persistence handoff to `DecisionStore`.
 - `src/metrics.js`: in-process Prometheus-style counters and gauges.
@@ -108,13 +109,13 @@ Safe apply semantics depend on `RuntimeConfigManager.update()` rather than direc
 
 ## Decision Review Modules
 
-Decision review starts from stored routing decisions and can create reusable learned routing examples:
+Decision review starts from stored routing decisions and can optionally create reusable learned routing examples:
 
 - `src/admin-api.js`: exposes `POST /api/admin/decisions/:requestId/review` and `POST /api/admin/decisions/:requestId/review/apply`.
 - `src/decision-corrector.js`: calls an upstream judge model through `/v1/chat/completions`, asks for strict JSON, validates confidence, and returns a suggestion.
-- `src/decision-store.js`: stores review feedback, learned routing examples, ratings, and correction metadata.
+- `src/decision-store.js`: stores review feedback and learned routing examples; legacy prompt-correction/correction-run tables are retained for compatibility and cleanup history.
 - `src/router-engine.js`: applies active learned routing examples for similar prompts when not in shadow mode and not forced by an API key.
-- `tests/decision-corrector.test.js` and `tests/decision-store.test.js`: cover review application, correction persistence, and corrected routing decisions.
+- `tests/decision-corrector.test.js` and `tests/decision-store.test.js`: cover review application, feedback-only apply, opt-in learned routing, and corrected routing decisions.
 
 ## Documentation Sources of Truth
 

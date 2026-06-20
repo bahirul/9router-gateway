@@ -554,15 +554,22 @@ export class DecisionStore {
     `).run(record.status, record.latencyMs, record.error, JSON.stringify(record.tokens), record.requestId));
   }
 
-  feedback(record) {
-    this.execute(() => this.db.prepare(`
+  upsertFeedback({ requestId, rating, expectedTarget = null, note = null, updatedAt = new Date().toISOString() }) {
+    this.db.prepare(`
       INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
       ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
       note=excluded.note,updatedAt=excluded.updatedAt
-    `).run(
-      record.requestId, record.rating, record.expectedTarget || null, record.note || null,
-      record.updatedAt || new Date().toISOString(),
-    ));
+    `).run(requestId, rating, expectedTarget || null, note || null, updatedAt);
+  }
+
+  feedback(record) {
+    this.execute(() => this.upsertFeedback({
+      requestId: record.requestId,
+      rating: record.rating,
+      expectedTarget: record.expectedTarget,
+      note: record.note,
+      updatedAt: record.updatedAt || new Date().toISOString(),
+    }));
   }
 
   promptTextForDecision(decision) {
@@ -615,11 +622,13 @@ export class DecisionStore {
     const now = record.updatedAt || new Date().toISOString();
     let learnedExample = false;
     this.execute(() => {
-      this.db.prepare(`
-        INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
-        ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
-        note=excluded.note,updatedAt=excluded.updatedAt
-      `).run(record.requestId, record.rating, record.expectedTarget || null, record.note || null, now);
+      this.upsertFeedback({
+        requestId: record.requestId,
+        rating: record.rating,
+        expectedTarget: record.expectedTarget,
+        note: record.note,
+        updatedAt: now,
+      });
       if (train) {
         learnedExample = this.storeLearnedRoutingExample(record, decision, {
           expectedTargetKey: targetEntry[0], expectedTarget: targetEntry[1], verdict, confidence,
@@ -719,9 +728,9 @@ export class DecisionStore {
     try {
       const adminPassword = this.getAdminPasswordRecord();
       const jsonlImported = this.db.prepare(`SELECT value FROM meta WHERE key='jsonlImported'`).get()?.value || new Date().toISOString();
-	      this.db.exec(`
-	        DELETE FROM learnedRoutingExamples;
-	        DELETE FROM promptCorrections;
+      this.db.exec(`
+        DELETE FROM learnedRoutingExamples;
+        DELETE FROM promptCorrections;
         DELETE FROM correctionItems;
         DELETE FROM correctionRuns;
         DELETE FROM feedback;
@@ -781,12 +790,12 @@ export class DecisionStore {
       }
     }
     const size = Math.min(100, Math.max(1, Number(limit) || 50));
-	    const rows = this.db.prepare(`
-	      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
-	      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
-	      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
-	      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
-	      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
+    const rows = this.db.prepare(`
+      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
+      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
+      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY d.timestamp DESC LIMIT ?
     `).all(...params, size + 1);
@@ -797,12 +806,12 @@ export class DecisionStore {
 
   get(requestId) {
     if (!this.ready) return null;
-	    const row = this.db.prepare(`
-	      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
-	      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
-	      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
-	      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
-	      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
+    const row = this.db.prepare(`
+      SELECT d.*,f.rating,f.expectedTarget,f.note,f.updatedAt AS feedbackUpdatedAt,
+      lr.expectedTargetKey AS learnedTargetKey,lr.expectedTarget AS learnedTarget,
+      lr.confidence AS learnedConfidence,lr.source AS learnedSource,lr.updatedAt AS learnedUpdatedAt
+      FROM decisions d LEFT JOIN feedback f ON f.requestId=d.requestId
+      LEFT JOIN learnedRoutingExamples lr ON lr.requestId=d.requestId AND lr.active=1
       WHERE d.requestId=?
     `).get(requestId);
     return row ? this.mapRow(row) : null;
@@ -818,20 +827,20 @@ export class DecisionStore {
       tokens: json(row.tokens),
       request: json(row.requestJson),
       userAgent: row.userAgent || row.client || null,
-	      reviewed: Boolean(row.rating || row.learnedTargetKey),
-	      learnedRouting: row.learnedTargetKey ? {
-	        expectedTargetKey: row.learnedTargetKey,
-	        expectedTarget: row.learnedTarget,
-	        confidence: row.learnedConfidence,
-	        source: row.learnedSource,
-	        updatedAt: row.learnedUpdatedAt,
-	      } : null,
-	      promptCorrection: row.learnedTargetKey ? {
-	        runId: row.learnedSource === "feedback" ? "manual_feedback" : "model_review",
-	        expectedTargetKey: row.learnedTargetKey,
-	        expectedTarget: row.learnedTarget,
-	        updatedAt: row.learnedUpdatedAt,
-	      } : null,
+      reviewed: Boolean(row.rating || row.learnedTargetKey),
+      learnedRouting: row.learnedTargetKey ? {
+        expectedTargetKey: row.learnedTargetKey,
+        expectedTarget: row.learnedTarget,
+        confidence: row.learnedConfidence,
+        source: row.learnedSource,
+        updatedAt: row.learnedUpdatedAt,
+      } : null,
+      promptCorrection: row.learnedTargetKey ? {
+        runId: row.learnedSource === "feedback" ? "manual_feedback" : "model_review",
+        expectedTargetKey: row.learnedTargetKey,
+        expectedTarget: row.learnedTarget,
+        updatedAt: row.learnedUpdatedAt,
+      } : null,
       feedback: row.rating ? {
         rating: row.rating,
         expectedTarget: row.expectedTarget,
@@ -841,56 +850,59 @@ export class DecisionStore {
     };
   }
 
-	  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7, trainLearning = false } = {}) {
-	    if (!this.ready) return { requestId, appliedFeedback: false, learnedExample: false, degraded: true };
-	    const decision = this.get(requestId);
-	    if (!decision) return null;
-	    const confidence = Number(suggestion?.confidence) || 0;
-	    const verdict = ["correct", "incorrect", "uncertain"].includes(suggestion?.verdict) ? suggestion.verdict : "uncertain";
-	    const trainIncorrect = verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget && confidence >= minConfidence;
-	    const trainCorrect = verdict === "correct" && decision.targetKey && decision.target && confidence >= minConfidence;
-	    if (trainLearning && !trainIncorrect && !trainCorrect && verdict !== "uncertain") {
-	      const error = new Error("suggestion must be correct or incorrect above the confidence threshold, or uncertain");
-	      error.status = 400;
-	      throw error;
-	    }
-	    const now = new Date().toISOString();
-	    const rating = verdict === "correct" ? 5 : verdict === "incorrect" ? 2 : 3;
-	    const expectedTargetKey = trainLearning ? trainIncorrect ? suggestion.expectedTargetKey : trainCorrect ? decision.targetKey : null : null;
-	    const expectedTarget = trainLearning ? trainIncorrect ? suggestion.expectedTarget : trainCorrect ? decision.target : null : null;
-	    let learnedExample = false;
-	    this.execute(() => {
-	      this.db.prepare(`
-        INSERT INTO feedback(requestId,rating,expectedTarget,note,updatedAt) VALUES(?,?,?,?,?)
-        ON CONFLICT(requestId) DO UPDATE SET rating=excluded.rating,expectedTarget=excluded.expectedTarget,
-        note=excluded.note,updatedAt=excluded.updatedAt
-	      `).run(
-	        requestId,
-	        rating,
-	        expectedTarget,
-	        suggestion.rationale || "Decision reviewed by upstream model",
-	        now,
-	      );
-	      if (expectedTargetKey && expectedTarget) {
-	        learnedExample = this.storeLearnedRoutingExample({ requestId }, decision, {
-	          expectedTargetKey,
-	          expectedTarget,
-	          verdict,
-	          confidence,
-	          rationale: suggestion.rationale || null,
-	          source: "model_review",
-	          now,
-	        });
-	      }
-	    });
-	    return {
-	      requestId,
-	      appliedFeedback: true,
-	      learnedExample,
-	      promptCorrection: learnedExample,
-	      decision: this.get(requestId),
-	    };
-	  }
+  applyDecisionReview(requestId, suggestion, { minConfidence = 0.7, trainLearning = false } = {}) {
+    if (!this.ready) return { requestId, appliedFeedback: false, learnedExample: false, degraded: true };
+    const decision = this.get(requestId);
+    if (!decision) return null;
+
+    const confidence = Number(suggestion?.confidence) || 0;
+    const verdict = ["correct", "incorrect", "uncertain"].includes(suggestion?.verdict) ? suggestion.verdict : "uncertain";
+    const canTrainIncorrect = verdict === "incorrect" && suggestion.expectedTargetKey && suggestion.expectedTarget && confidence >= minConfidence;
+    const canTrainCorrect = verdict === "correct" && decision.targetKey && decision.target && confidence >= minConfidence;
+
+    if (trainLearning && !canTrainIncorrect && !canTrainCorrect && verdict !== "uncertain") {
+      const error = new Error("suggestion must be correct or incorrect above the confidence threshold, or uncertain");
+      error.status = 400;
+      throw error;
+    }
+
+    const learnedTarget = trainLearning && canTrainIncorrect
+      ? { expectedTargetKey: suggestion.expectedTargetKey, expectedTarget: suggestion.expectedTarget }
+      : trainLearning && canTrainCorrect
+        ? { expectedTargetKey: decision.targetKey, expectedTarget: decision.target }
+        : null;
+    const now = new Date().toISOString();
+    const rating = verdict === "correct" ? 5 : verdict === "incorrect" ? 2 : 3;
+    let learnedExample = false;
+
+    this.execute(() => {
+      this.upsertFeedback({
+        requestId,
+        rating,
+        expectedTarget: learnedTarget?.expectedTarget || null,
+        note: suggestion.rationale || "Decision reviewed by upstream model",
+        updatedAt: now,
+      });
+      if (learnedTarget) {
+        learnedExample = this.storeLearnedRoutingExample({ requestId }, decision, {
+          ...learnedTarget,
+          verdict,
+          confidence,
+          rationale: suggestion.rationale || null,
+          source: "model_review",
+          now,
+        });
+      }
+    });
+
+    return {
+      requestId,
+      appliedFeedback: true,
+      learnedExample,
+      promptCorrection: learnedExample,
+      decision: this.get(requestId),
+    };
+  }
 
   analytics({ from, to } = {}) {
     const end = to || new Date().toISOString();

@@ -61,7 +61,7 @@ The dashboard manages:
 - Affinity TTL, affinity entry limit, decision-retention settings, and raw prompt logging.
 - API-key enforcement, key quotas, and per-key model limits.
 
-Task classes are initialized from built-in defaults and then stored in SQLite. Existing deployments with `routing.taskClasses` in `config.yaml` import those classes into SQLite once; new YAML task-class edits are ignored after SQLite has task classes.
+Task classes are initialized from built-in English defaults and then stored in SQLite. Existing deployments with `routing.taskClasses` in `config.yaml` import those classes into SQLite once; new YAML task-class edits are ignored after SQLite has task classes. Use Dashboard → Task Classifier → Reset to defaults to restore the current built-in task classes without changing semantic classifier runtime options.
 
 Dashboard reset returns runtime overrides to file and environment values, but keeps the SQLite task-class seed so task classes remain dashboard-managed. Database reset deletes decisions, feedback, API keys, quotas, and dashboard settings while preserving the current admin password.
 
@@ -93,7 +93,11 @@ Apply semantics are intentionally conservative:
 
 `logging.rawPrompts` is disabled by default. When enabled, decision records include the latest user prompt and a request snapshot in SQLite and `decisions.jsonl`. Leave it disabled unless operators need richer feedback review because this data can contain private request content.
 
-Dashboard → System → Reset learned routing data clears stored prompt/request context only for reviewed decisions tied to learned routing, then deactivates learned routing examples. Decision history and feedback records remain available.
+Dashboard → System → Reset learned routing data clears stored prompt/request context only for reviewed decisions tied to learned routing, then deactivates learned routing examples. Clear all prompt data removes stored prompt/request context from every decision. Decision history and feedback records remain available in both cases.
+
+## Client IPs Behind Proxies
+
+Decision records and admin login rate limits use proxy-aware client IP extraction. The gateway prefers `CF-Connecting-IP`, `True-Client-IP`, the first valid `X-Forwarded-For` value, `X-Real-IP`, `Forwarded`, and finally the socket remote address. This makes Cloudflare deployments record the user IP instead of the Cloudflare edge IP.
 
 ## API Keys
 

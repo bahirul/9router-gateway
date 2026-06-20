@@ -75,13 +75,13 @@ Default admin password: `smart9router`. Change it from the System page after fir
 
 Dashboard pages:
 
-- Overview: request volume, target distribution, latency, tokens, task classes, complexity, and service status.
+- Overview: request volume, target distribution, latency, total task duration, tokens, task classes, complexity, and service status.
 - Routing: target models, thresholds, virtual-model profiles, shadow mode, affinity, raw prompt logging, and retention.
-- Task Classifier: deterministic task classes, regexes, semantic labels, score deltas, hard floors, and priority.
+- Task Classifier: deterministic task classes, regexes, semantic labels, score deltas, hard floors, priority, and reset-to-defaults.
 - Decisions: stored routing decisions, request signals, operator feedback, single-decision review, batch review, and model-assisted routing config proposals.
 - Playground: quick route explanations for OpenAI Chat, OpenAI Responses, and Anthropic Messages payloads.
 - API Keys: gateway client keys, expirations, quotas, active/revoked state, and forced model limits.
-- System: endpoint examples, admin password changes, catalog refresh, privacy reset, history purge, override reset, and database reset.
+- System: endpoint examples, admin password changes, catalog refresh, prompt privacy cleanup, history purge, override reset, and database reset.
 
 ## Client URLs
 
@@ -100,13 +100,13 @@ When dashboard API-key enforcement is enabled, clients must send either `Authori
 
 Dashboard → Decisions stores smart-routing decisions with the extracted signals used by the router. Operators can open a decision, add feedback, ask an upstream 9Router model to review the route, preview the suggestion, and apply it when appropriate.
 
-Applied reviews store operator feedback and train a local learned-routing classifier from stored prompt context. Future similar prompts can route with mode `learned_classified`; the system does not mutate task-class regexes, thresholds, or routing targets automatically.
+Applied reviews always store operator feedback. They train a local learned-routing classifier only when the operator enables **Create learned routing when eligible** before applying the model suggestion. Future similar prompts can route with mode `learned_classified`; the system does not mutate task-class regexes, thresholds, or routing targets automatically.
 
 Use batch review from the Decisions page when you want to review multiple stored decisions in one workflow. Review features require stored prompt/request context, so enable Dashboard → Routing → Raw prompt logging before collecting decisions you plan to audit. Stored request context is sanitized for sensitive fields before persistence.
 
 ## Routing Config Proposals
 
-Dashboard → Decisions → Review all sends matching unreviewed decisions to the selected judge model one by one. Confident correct or incorrect reviews train learned routing immediately, while uncertain reviews are still marked reviewed as feedback.
+Dashboard → Decisions → Review all sends matching unreviewed decisions to the selected judge model one by one. Confident correct or incorrect reviews train learned routing only when the batch option is enabled, while uncertain reviews are still marked reviewed as feedback.
 
 Every proposal is normalized and validated before it can be previewed or applied. The preview compares current routing with the candidate configuration for the supplied samples, showing task, target, complexity, and whether each route would change.
 
@@ -114,9 +114,11 @@ Applying a proposal is an explicit operator action. Accepted changes are saved a
 
 ## Prompt Context Privacy Reset
 
-Use Dashboard → System → Reset learned routing data to clear stored raw prompts and request context for reviewed decisions, and disable learned routing examples. Decision history and operator feedback stay available.
+Use Dashboard → System → Reset learned routing data to clear stored raw prompts and request context for reviewed decisions, and disable learned routing examples. Use Clear all prompt data to remove stored raw prompts and request context from every decision while keeping history and feedback.
 
 For stronger cleanup, Dashboard → System can also purge decision history, reset runtime overrides, or reset the SQLite database while preserving the admin password.
+
+When deployed behind Cloudflare or another reverse proxy, recorded decision IPs prefer `CF-Connecting-IP`, `True-Client-IP`, forwarded headers, and then the socket address.
 
 ## Configuration
 
