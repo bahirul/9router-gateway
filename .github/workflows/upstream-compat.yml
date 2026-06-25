@@ -15,13 +15,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: docker run -d --name 9router -p 20128:20128 -e REQUIRE_API_KEY=false decolua/9router:latest
+      - run: docker run -d --name 9router --network host -e REQUIRE_API_KEY=false -e DATA_DIR=/app/data ghcr.io/decolua/9router:latest
       - run: |
+          last_status=""
+          last_body=""
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:20128/v1/models && exit 0
+            response=$(curl -sS -w '\n%{http_code}' http://127.0.0.1:20128/v1/models || true)
+            last_status=$(printf '%s' "$response" | tail -n 1)
+            last_body=$(printf '%s' "$response" | sed '$d')
+            if [ "$last_status" = "200" ]; then
+              printf '%s\n' "$last_body"
+              exit 0
+            fi
+            if [ "$last_status" = "401" ]; then
+              echo "9Router rejected readiness request; expected loopback access under host networking."
+              printf '%s\n' "$last_body"
+              exit 1
+            fi
             sleep 2
           done
           echo "9Router did not become ready"
+          echo "Last HTTP status: ${last_status:-none}"
+          printf '%s\n' "$last_body"
           exit 1
       - run: npm run smoke:upstream
       - if: always()
@@ -37,13 +52,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: docker build -t 9router:master https://github.com/decolua/9router.git#master
-      - run: docker run -d --name 9router-master -p 20128:20128 -e REQUIRE_API_KEY=false 9router:master
+      - run: docker run -d --name 9router-master --network host -e REQUIRE_API_KEY=false -e DATA_DIR=/app/data 9router:master
       - run: |
+          last_status=""
+          last_body=""
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:20128/v1/models && exit 0
+            response=$(curl -sS -w '\n%{http_code}' http://127.0.0.1:20128/v1/models || true)
+            last_status=$(printf '%s' "$response" | tail -n 1)
+            last_body=$(printf '%s' "$response" | sed '$d')
+            if [ "$last_status" = "200" ]; then
+              printf '%s\n' "$last_body"
+              exit 0
+            fi
+            if [ "$last_status" = "401" ]; then
+              echo "9Router rejected readiness request; expected loopback access under host networking."
+              printf '%s\n' "$last_body"
+              exit 1
+            fi
             sleep 2
           done
           echo "9Router master did not become ready"
+          echo "Last HTTP status: ${last_status:-none}"
+          printf '%s\n' "$last_body"
           exit 1
       - run: npm run smoke:upstream
       - if: always()
