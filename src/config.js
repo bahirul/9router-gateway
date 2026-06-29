@@ -55,6 +55,10 @@ const DEFAULT_CONFIG = {
     rawPrompts: false,
     retentionDays: 30,
   },
+  identity: {
+    enabled: false,
+    modelName: "9Router",
+  },
   security: {
     sessionTtlMs: 8 * 60 * 60 * 1000,
     apiKeyAuthEnabled: false,
@@ -86,6 +90,8 @@ const UI_EDITABLE_PATHS = new Set([
   "affinity.maxEntries",
   "logging.rawPrompts",
   "logging.retentionDays",
+  "identity.enabled",
+  "identity.modelName",
   "security.apiKeyAuthEnabled",
 ]);
 
@@ -171,6 +177,19 @@ function validate(config) {
   assertPositiveNumber(config.security.sessionTtlMs, "security.sessionTtlMs");
   if (typeof config.security.apiKeyAuthEnabled !== "boolean") {
     throw new Error("security.apiKeyAuthEnabled must be a boolean");
+  }
+  if (typeof config.identity.enabled !== "boolean") {
+    throw new Error("identity.enabled must be a boolean");
+  }
+  if (typeof config.identity.modelName !== "string") {
+    throw new Error("identity.modelName must be a string");
+  }
+  config.identity.modelName = config.identity.modelName.trim();
+  if (config.identity.enabled && !config.identity.modelName) {
+    throw new Error("identity.modelName must be non-empty when identity override is enabled");
+  }
+  if (config.identity.modelName.length > 120) {
+    throw new Error("identity.modelName must be at most 120 characters");
   }
 
   let upstream;
@@ -287,6 +306,7 @@ function publicConfig(config) {
     },
     affinity: structuredClone(config.affinity),
     logging: structuredClone(config.logging),
+    identity: structuredClone(config.identity),
     security: {
       apiKeyAuthEnabled: config.security.apiKeyAuthEnabled,
       sessionTtlMs: config.security.sessionTtlMs,
@@ -392,6 +412,9 @@ export class RuntimeConfigManager {
     const candidate = validate(applyEnvironment(
       mergeConfig(mergeConfig(DEFAULT_CONFIG, this.fileConfig), nextOverrides),
     ));
+    if (nextOverrides.identity?.modelName !== undefined) {
+      nextOverrides.identity.modelName = candidate.identity.modelName;
+    }
     if (candidateValidator) await candidateValidator(candidate);
     this.persistRuntimeOverrides(nextOverrides);
     this.runtimeOverrides = nextOverrides;

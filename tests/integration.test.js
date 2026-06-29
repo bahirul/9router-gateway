@@ -734,3 +734,85 @@ test("client api keys are not forwarded when upstream api key is empty", async (
   assert.equal(upstreamHeaders.at(-1).authorization, undefined);
   assert.equal(upstreamHeaders.at(-1)["x-api-key"], undefined);
 });
+
+test("model identity override injects instructions for routed request formats", async (t) => {
+  const upstreamBodies = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      upstreamBodies.push({ url: req.url, body });
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ model: body.model, ok: true }));
+    });
+  });
+  const upstreamPort = await listen(upstream);
+  t.after(() => close(upstream));
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "smart-router-identity-"));
+  const config = mergeDeep(DEFAULT_CONFIG, {
+    server: { host: "127.0.0.1", port: 0 },
+    upstream: {
+      baseUrl: `http://127.0.0.1:${upstreamPort}`,
+      strictModelValidation: false,
+    },
+    classifier: { enabled: false, cacheDir: path.join(dataDir, "models") },
+    identity: { enabled: true, modelName: "Codex Router" },
+    logging: { directory: dataDir, rawPrompts: true },
+  });
+  const app = createSmartRouter({ config, logger: { error() {}, warn() {} } });
+  await app.storageReady;
+  const sidecarPort = await listen(app.server);
+  t.after(async () => {
+    await close(app.server);
+    app.stopBackgroundServices();
+  });
+  const baseUrl = `http://127.0.0.1:${sidecarPort}`;
+
+  const chat = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      messages: [
+        { role: "system", content: "Be concise." },
+        { role: "user", content: "Who are you?" },
+      ],
+    }),
+  });
+  assert.equal(chat.status, 200);
+  assert.equal(upstreamBodies.at(-1).body.messages[0].role, "system");
+  assert.match(upstreamBodies.at(-1).body.messages[0].content, /Codex Router/);
+  assert.equal(upstreamBodies.at(-1).body.messages[1].content, "Be concise.");
+
+  const responses = await fetch(`${baseUrl}/v1/responses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      instructions: "Keep answers short.",
+      input: "What model are you?",
+    }),
+  });
+  assert.equal(responses.status, 200);
+  assert.match(upstreamBodies.at(-1).body.instructions, /^If the user asks.*Codex Router/s);
+  assert.match(upstreamBodies.at(-1).body.instructions, /Keep answers short\.$/);
+
+  const anthropic = await fetch(`${baseUrl}/v1/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "auto",
+      max_tokens: 128,
+      system: [{ type: "text", text: "Prefer bullets." }],
+      messages: [{ role: "user", content: [{ type: "text", text: "What assistant are you?" }] }],
+    }),
+  });
+  assert.equal(anthropic.status, 200);
+  assert.equal(upstreamBodies.at(-1).body.system[0].type, "text");
+  assert.match(upstreamBodies.at(-1).body.system[0].text, /Codex Router/);
+  assert.equal(upstreamBodies.at(-1).body.system[1].text, "Prefer bullets.");
+  const storedChat = app.decisionStore.list().items.find((item) => item.request?.body?.messages?.[0]?.content === "Be concise.");
+  assert.ok(storedChat);
+});

@@ -376,6 +376,10 @@ export function RoutingPage() {
               rawPrompts: form.logging.rawPrompts,
               retentionDays: form.logging.retentionDays,
             },
+            identity: {
+              enabled: form.identity.enabled,
+              modelName: form.identity.modelName,
+            },
           },
         }),
       });
@@ -429,6 +433,11 @@ export function RoutingPage() {
         <Card title="Shadow mode" subtitle="Record predictions while dispatching every virtual request to one target.">
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable shadow mode</p><p className="text-xs text-text-muted">Useful for policy calibration before active routing.</p></div><div className="shrink-0"><Toggle checked={form.routing.shadowMode} onChange={(value) => field("routing.shadowMode", value)} /></div></div>
           <div className="mt-4"><Field label="Shadow dispatch target"><Input list="catalog-targets" value={form.routing.shadowTarget} onChange={(event) => field("routing.shadowTarget", event.target.value)} /></Field></div>
+        </Card>
+        <Card title="Model identity override" subtitle="Prompt-level identity for routed and proxied agent requests.">
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable identity override</p><p className="text-xs text-text-muted">Adds a system instruction so agents identify as the configured name when asked.</p></div><div className="shrink-0"><Toggle checked={form.identity.enabled} onChange={(value) => field("identity.enabled", value)} /></div></div>
+          <div className="mt-4"><Field label="Display model name"><Input value={form.identity.modelName} onChange={(event) => field("identity.modelName", event.target.value)} disabled={!form.identity.enabled} /></Field></div>
+          <p className="mt-2 text-xs text-text-muted">This is best-effort prompt injection; direct user instructions may still override it.</p>
         </Card>
         <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">
           <div className="grid gap-4 sm:grid-cols-2">

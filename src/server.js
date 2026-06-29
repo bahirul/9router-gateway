@@ -325,6 +325,41 @@ function filterModelsForApiKey(payload, forcedModel) {
   return { ...payload, data: (payload.data || []).filter((model) => allowed.has(model.id)) };
 }
 
+function identityInstruction(modelName) {
+  return `If the user asks what model, assistant, agent, or system you are, answer that you are "${modelName}". Do not mention the underlying upstream model unless explicitly required by the application.`;
+}
+
+function prependText(existing, text) {
+  if (typeof existing === "string" && existing.trim()) return `${text}\n\n${existing}`;
+  if (existing == null || existing === "") return text;
+  return `${text}\n\n${String(existing)}`;
+}
+
+function applyIdentityOverride(body, pathname, identityConfig = {}) {
+  if (!identityConfig.enabled || !identityConfig.modelName) return false;
+  const instruction = identityInstruction(identityConfig.modelName);
+  if (pathname.endsWith("/chat/completions")) {
+    body.messages = [
+      { role: "system", content: instruction },
+      ...(Array.isArray(body.messages) ? body.messages : []),
+    ];
+    return true;
+  }
+  if (pathname.endsWith("/responses")) {
+    body.instructions = prependText(body.instructions, instruction);
+    return true;
+  }
+  if (pathname.endsWith("/messages")) {
+    if (Array.isArray(body.system)) {
+      body.system = [{ type: "text", text: instruction }, ...body.system];
+    } else {
+      body.system = prependText(body.system, instruction);
+    }
+    return true;
+  }
+  return false;
+}
+
 function inMemoryConfigManager(initialConfig) {
   const baseConfig = validate(structuredClone(initialConfig));
   let config = baseConfig;
@@ -555,6 +590,7 @@ export function createSmartRouter({
       let outgoingBody = bodyBuffer;
       if (isRoutablePath(req.method, pathname)) {
         let body;
+        let bodyChanged = false;
         try {
           body = JSON.parse(bodyBuffer.toString("utf8"));
         } catch {
@@ -577,9 +613,15 @@ export function createSmartRouter({
         }
         if (!routingResult.passthrough) {
           body.model = routingResult.decision.dispatchTarget;
-          outgoingBody = Buffer.from(JSON.stringify(body));
+          bodyChanged = true;
         } else if (forcedModel) {
           body.model = forcedModel;
+          bodyChanged = true;
+        }
+        if (applyIdentityOverride(body, pathname, activeConfig.identity)) {
+          bodyChanged = true;
+        }
+        if (bodyChanged) {
           outgoingBody = Buffer.from(JSON.stringify(body));
         }
       }

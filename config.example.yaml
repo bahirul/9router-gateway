@@ -49,6 +49,10 @@ logging:
   rawPrompts: false
   retentionDays: 30
 
+identity:
+  enabled: false
+  modelName: 9Router
+
 security:
   sessionTtlMs: 28800000
   apiKeyAuthEnabled: false

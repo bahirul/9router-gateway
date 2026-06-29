@@ -37,6 +37,7 @@ Important defaults from `src/config.js`; `config.example.yaml` mirrors these exc
 - Virtual profiles: `auto`, `auto-fast`, `auto-quality`.
 - Classifier: `Xenova/nli-deberta-v3-xsmall`, revision `2a4f614a701367a02d51389039afc998faeda637`, cached in `./data/models`.
 - Storage: `./data`, `30` day decision retention.
+- Identity: disabled by default, display model name `9Router`.
 - Security: `8` hour dashboard session, API-key enforcement disabled by default.
 
 ## Configuration Precedence
@@ -58,8 +59,11 @@ The dashboard manages:
 - Routing targets, thresholds, profiles, and shadow mode.
 - Task classes and regex patterns.
 - Semantic classifier enablement, timeout, confidence, and local-file mode.
+- Model identity override toggle and display name.
 - Affinity TTL, affinity entry limit, decision-retention settings, and raw prompt logging.
 - API-key enforcement, key quotas, and per-key model limits.
+
+When model identity override is enabled, the gateway prepends a short system-level instruction to OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests so the assistant identifies as the configured display name when asked. This is prompt-based behavior, not response rewriting, so adversarial or conflicting prompts may still affect the answer.
 
 Task classes are initialized from built-in English defaults and then stored in SQLite. Existing deployments with `routing.taskClasses` in `config.yaml` import those classes into SQLite once; new YAML task-class edits are ignored after SQLite has task classes. Use Dashboard → Task Classifier → Reset to defaults to restore the current built-in task classes without changing semantic classifier runtime options.
 

@@ -135,6 +135,22 @@ test("security api key auth toggle is editable and persisted", async (t) => {
   assert.equal(store.getRuntimeConfig().security.apiKeyAuthEnabled, true);
 });
 
+test("identity override is editable, trimmed, and validated", async (t) => {
+  const { store, manager } = await runtimeManagerFixture(t);
+  const state = manager.describe();
+
+  const updated = await manager.update({ identity: { enabled: true, modelName: "  Codex Router  " } }, state.revision);
+  assert.equal(updated.config.identity.enabled, true);
+  assert.equal(updated.config.identity.modelName, "Codex Router");
+  assert.equal(store.getRuntimeConfig().identity.enabled, true);
+  assert.equal(store.getRuntimeConfig().identity.modelName, "Codex Router");
+
+  await assert.rejects(
+    manager.update({ identity: { enabled: true, modelName: "   " } }, updated.revision),
+    /identity\.modelName must be non-empty/,
+  );
+});
+
 test("seeds and edits task classes in SQLite runtime config", async (t) => {
   const { store, manager } = await runtimeManagerFixture(t);
   const initial = manager.describe();
