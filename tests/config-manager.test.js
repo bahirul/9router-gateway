@@ -139,15 +139,22 @@ test("identity override is editable, trimmed, and validated", async (t) => {
   const { store, manager } = await runtimeManagerFixture(t);
   const state = manager.describe();
 
-  const updated = await manager.update({ identity: { enabled: true, modelName: "  Codex Router  " } }, state.revision);
+  const updated = await manager.update({ identity: { enabled: true, modelName: "  Codex Router  ", createdBy: "  9router-gateway  " } }, state.revision);
   assert.equal(updated.config.identity.enabled, true);
   assert.equal(updated.config.identity.modelName, "Codex Router");
+  assert.equal(updated.config.identity.createdBy, "9router-gateway");
   assert.equal(store.getRuntimeConfig().identity.enabled, true);
   assert.equal(store.getRuntimeConfig().identity.modelName, "Codex Router");
+  assert.equal(store.getRuntimeConfig().identity.createdBy, "9router-gateway");
 
   await assert.rejects(
     manager.update({ identity: { enabled: true, modelName: "   " } }, updated.revision),
     /identity\.modelName must be non-empty/,
+  );
+
+  await assert.rejects(
+    manager.update({ identity: { enabled: true, createdBy: "   " } }, updated.revision),
+    /identity\.createdBy must be non-empty/,
   );
 });
 

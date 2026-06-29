@@ -52,6 +52,7 @@ logging:
 identity:
   enabled: false
   modelName: 9Router
+  createdBy: 9router-gateway
 
 security:
   sessionTtlMs: 28800000

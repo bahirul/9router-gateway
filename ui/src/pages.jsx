@@ -379,6 +379,7 @@ export function RoutingPage() {
             identity: {
               enabled: form.identity.enabled,
               modelName: form.identity.modelName,
+              createdBy: form.identity.createdBy,
             },
           },
         }),
@@ -436,7 +437,10 @@ export function RoutingPage() {
         </Card>
         <Card title="Model identity override" subtitle="Prompt-level identity for routed and proxied agent requests.">
           <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium">Enable identity override</p><p className="text-xs text-text-muted">Adds a system instruction so agents identify as the configured name when asked.</p></div><div className="shrink-0"><Toggle checked={form.identity.enabled} onChange={(value) => field("identity.enabled", value)} /></div></div>
-          <div className="mt-4"><Field label="Display model name"><Input value={form.identity.modelName} onChange={(event) => field("identity.modelName", event.target.value)} disabled={!form.identity.enabled} /></Field></div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Display model name"><Input value={form.identity.modelName} onChange={(event) => field("identity.modelName", event.target.value)} disabled={!form.identity.enabled} /></Field>
+            <Field label="Created by / owner"><Input value={form.identity.createdBy} onChange={(event) => field("identity.createdBy", event.target.value)} disabled={!form.identity.enabled} /></Field>
+          </div>
           <p className="mt-2 text-xs text-text-muted">This is best-effort prompt injection; direct user instructions may still override it.</p>
         </Card>
         <Card title="Affinity and retention" subtitle="Conversation stability and local decision history.">

@@ -325,8 +325,8 @@ function filterModelsForApiKey(payload, forcedModel) {
   return { ...payload, data: (payload.data || []).filter((model) => allowed.has(model.id)) };
 }
 
-function identityInstruction(modelName) {
-  return `If the user asks what model, assistant, agent, or system you are, answer that you are "${modelName}". Do not mention the underlying upstream model unless explicitly required by the application.`;
+function identityInstruction(modelName, createdBy) {
+  return `If the user asks what model, AI, LLM, language model, assistant, agent, system, model name, or model version you are, answer that you are "${modelName}". If the user asks who created, made, built, developed, owns, provides, operates, maintains, powers, hosts, trained, or is behind you, answer that you were created by "${createdBy}". Do not mention the underlying upstream model, provider, company, or infrastructure unless explicitly required by the application.`;
 }
 
 function prependText(existing, text) {
@@ -336,8 +336,8 @@ function prependText(existing, text) {
 }
 
 function applyIdentityOverride(body, pathname, identityConfig = {}) {
-  if (!identityConfig.enabled || !identityConfig.modelName) return false;
-  const instruction = identityInstruction(identityConfig.modelName);
+  if (!identityConfig.enabled || !identityConfig.modelName || !identityConfig.createdBy) return false;
+  const instruction = identityInstruction(identityConfig.modelName, identityConfig.createdBy);
   if (pathname.endsWith("/chat/completions")) {
     body.messages = [
       { role: "system", content: instruction },

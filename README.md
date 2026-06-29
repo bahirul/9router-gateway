@@ -122,7 +122,7 @@ When deployed behind Cloudflare or another reverse proxy, recorded decision IPs 
 
 ## Configuration
 
-Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, model identity override, raw prompt logging, API-key enforcement, quotas, per-key model limits, decision review corrections, and runtime overrides.
+Start from `config.example.yaml` when you need file-based defaults. Most operator settings are editable from the dashboard and stored in `data/router.sqlite`, including routing targets, task classes, classifier settings, model identity and creator override, raw prompt logging, API-key enforcement, quotas, per-key model limits, decision review corrections, and runtime overrides.
 
 Only the environment variables shown in `.env.example` are read by the app.
 

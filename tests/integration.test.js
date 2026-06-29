@@ -758,7 +758,7 @@ test("model identity override injects instructions for routed request formats", 
       strictModelValidation: false,
     },
     classifier: { enabled: false, cacheDir: path.join(dataDir, "models") },
-    identity: { enabled: true, modelName: "Codex Router" },
+    identity: { enabled: true, modelName: "Codex Router", createdBy: "9router-gateway" },
     logging: { directory: dataDir, rawPrompts: true },
   });
   const app = createSmartRouter({ config, logger: { error() {}, warn() {} } });
@@ -784,6 +784,8 @@ test("model identity override injects instructions for routed request formats", 
   assert.equal(chat.status, 200);
   assert.equal(upstreamBodies.at(-1).body.messages[0].role, "system");
   assert.match(upstreamBodies.at(-1).body.messages[0].content, /Codex Router/);
+  assert.match(upstreamBodies.at(-1).body.messages[0].content, /9router-gateway/);
+  assert.match(upstreamBodies.at(-1).body.messages[0].content, /created, made, built, developed, owns, provides, operates, maintains, powers, hosts, trained, or is behind/);
   assert.equal(upstreamBodies.at(-1).body.messages[1].content, "Be concise.");
 
   const responses = await fetch(`${baseUrl}/v1/responses`, {
@@ -797,6 +799,7 @@ test("model identity override injects instructions for routed request formats", 
   });
   assert.equal(responses.status, 200);
   assert.match(upstreamBodies.at(-1).body.instructions, /^If the user asks.*Codex Router/s);
+  assert.match(upstreamBodies.at(-1).body.instructions, /9router-gateway/);
   assert.match(upstreamBodies.at(-1).body.instructions, /Keep answers short\.$/);
 
   const anthropic = await fetch(`${baseUrl}/v1/messages`, {
@@ -812,6 +815,7 @@ test("model identity override injects instructions for routed request formats", 
   assert.equal(anthropic.status, 200);
   assert.equal(upstreamBodies.at(-1).body.system[0].type, "text");
   assert.match(upstreamBodies.at(-1).body.system[0].text, /Codex Router/);
+  assert.match(upstreamBodies.at(-1).body.system[0].text, /9router-gateway/);
   assert.equal(upstreamBodies.at(-1).body.system[1].text, "Prefer bullets.");
   const storedChat = app.decisionStore.list().items.find((item) => item.request?.body?.messages?.[0]?.content === "Be concise.");
   assert.ok(storedChat);

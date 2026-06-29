@@ -58,6 +58,7 @@ const DEFAULT_CONFIG = {
   identity: {
     enabled: false,
     modelName: "9Router",
+    createdBy: "9router-gateway",
   },
   security: {
     sessionTtlMs: 8 * 60 * 60 * 1000,
@@ -92,6 +93,7 @@ const UI_EDITABLE_PATHS = new Set([
   "logging.retentionDays",
   "identity.enabled",
   "identity.modelName",
+  "identity.createdBy",
   "security.apiKeyAuthEnabled",
 ]);
 
@@ -184,12 +186,22 @@ function validate(config) {
   if (typeof config.identity.modelName !== "string") {
     throw new Error("identity.modelName must be a string");
   }
+  if (typeof config.identity.createdBy !== "string") {
+    throw new Error("identity.createdBy must be a string");
+  }
   config.identity.modelName = config.identity.modelName.trim();
+  config.identity.createdBy = config.identity.createdBy.trim();
   if (config.identity.enabled && !config.identity.modelName) {
     throw new Error("identity.modelName must be non-empty when identity override is enabled");
   }
+  if (config.identity.enabled && !config.identity.createdBy) {
+    throw new Error("identity.createdBy must be non-empty when identity override is enabled");
+  }
   if (config.identity.modelName.length > 120) {
     throw new Error("identity.modelName must be at most 120 characters");
+  }
+  if (config.identity.createdBy.length > 120) {
+    throw new Error("identity.createdBy must be at most 120 characters");
   }
 
   let upstream;
@@ -414,6 +426,9 @@ export class RuntimeConfigManager {
     ));
     if (nextOverrides.identity?.modelName !== undefined) {
       nextOverrides.identity.modelName = candidate.identity.modelName;
+    }
+    if (nextOverrides.identity?.createdBy !== undefined) {
+      nextOverrides.identity.createdBy = candidate.identity.createdBy;
     }
     if (candidateValidator) await candidateValidator(candidate);
     this.persistRuntimeOverrides(nextOverrides);

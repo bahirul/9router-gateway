@@ -115,7 +115,7 @@ curl http://127.0.0.1:20129/v1/messages \
 
 Forced-model API keys override routable virtual aliases and explicit passthrough models. The request is dispatched to the forced model, and smart-routed requests report mode `key_shadow` in the response headers.
 
-If Dashboard → Routing → Model identity override is enabled, the gateway adds a short system-level instruction before proxying so assistants answer identity/model-name questions with the configured display name. This applies to Chat Completions, Responses, and Anthropic Messages requests and is best-effort prompt behavior rather than guaranteed response filtering.
+If Dashboard → Routing → Model identity override is enabled, the gateway adds a short system-level instruction before proxying so assistants answer identity/model-name questions with the configured display name and creator/maker/owner/provider questions with the configured creator name. This applies to Chat Completions, Responses, and Anthropic Messages requests and is best-effort prompt behavior rather than guaranteed response filtering.
 
 Routing normalization currently reads:
 
